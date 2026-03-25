@@ -83,3 +83,7 @@ Server-Sent Events endpoint that emits:
 - The rule-based layer intentionally focuses on checks that can be inferred from raw DOCX text.
 - If `OPENAI_API_KEY` is missing, the application still completes using the rule-based report and flags the LLM stage as skipped.
 - In production, the Express server will serve `client/dist` automatically after the frontend build exists.
+
+## AWS Deployment
+
+This repo now includes a container build, an ECS deployment workflow, and AWS IAM/task templates for ECS Fargate. See [`docs/aws-ecs-fargate.md`](docs/aws-ecs-fargate.md) before deploying.

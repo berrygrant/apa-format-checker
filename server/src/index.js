@@ -12,6 +12,7 @@ import { initializeSse, sendSseEvent, startHeartbeat } from "./lib/sse.js";
 import { processReviewJob } from "./lib/reviewJob.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -51,7 +52,6 @@ function validateDocxFile(file) {
 }
 
 app.use(express.json({ limit: "256kb" }));
-app.use("/api", apiLimiter);
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -61,7 +61,7 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.post("/api/review", upload.single("file"), (req, res) => {
+app.post("/api/review", apiLimiter, upload.single("file"), (req, res) => {
   const fileError = validateDocxFile(req.file);
 
   if (fileError) {
@@ -196,6 +196,21 @@ app.use((error, _req, res, _next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`APA review server listening on http://localhost:${PORT}`);
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`APA review server listening on http://0.0.0.0:${PORT}`);
 });
+
+function shutdown(signal) {
+  console.log(`${signal} received, shutting down HTTP server...`);
+
+  server.close(() => {
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    process.exit(1);
+  }, 10_000).unref?.();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
