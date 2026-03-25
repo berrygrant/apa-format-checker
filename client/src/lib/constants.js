@@ -1,0 +1,23 @@
+export const MAX_DOCX_BYTES = 3 * 1024 * 1024;
+
+export const REVIEW_STAGES = [
+  { id: "queued", label: "Queued" },
+  { id: "parsing_document", label: "Parsing document" },
+  { id: "running_rule_checks", label: "Rule-based checks" },
+  { id: "evaluating_citations", label: "Evaluating citations" },
+  { id: "evaluating_references", label: "Evaluating references" },
+  { id: "llm_review", label: "OpenAI review" },
+  { id: "finalizing", label: "Finalizing report" },
+  { id: "completed", label: "Complete" },
+];
+
+export const SECTION_SLOTS = [
+  { id: "parser", label: "Parser" },
+  { id: "document", label: "Document Structure" },
+  { id: "titlePage", label: "Title Page" },
+  { id: "body", label: "Body and Headings" },
+  { id: "citations", label: "Citations" },
+  { id: "references", label: "References" },
+  { id: "llm", label: "OpenAI Review" },
+];
+

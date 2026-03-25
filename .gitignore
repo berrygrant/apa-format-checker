@@ -1,0 +1,33 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.*.local
+!.env.example
+
+# Logs and temp files
+*.log
+tmp/
+temp/
+.cache/
+
+# Local editor and OS metadata
+.vscode/
+.idea/
+
+# Build outputs
+client/dist/
+server/dist/
+
+# Local sample data and exports
+fixtures/private/
+samples/private/
+uploads/
+exports/
