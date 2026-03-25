@@ -24,11 +24,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     concurrency: production-deploy
-    if: ${{ vars.AWS_REGION != '' && vars.AWS_ROLE_TO_ASSUME != '' && vars.ECR_REPOSITORY != '' && vars.ECS_CLUSTER != '' && vars.ECS_SERVICE != '' && vars.ECS_CONTAINER_NAME != '' }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Validate required environment variables
+        run: |
+          test -n "${{ env.AWS_REGION }}"
+          test -n "${{ env.AWS_ROLE_TO_ASSUME }}"
+          test -n "${{ env.ECR_REPOSITORY }}"
+          test -n "${{ env.ECS_CLUSTER }}"
+          test -n "${{ env.ECS_SERVICE }}"
+          test -n "${{ env.ECS_CONTAINER_NAME }}"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
