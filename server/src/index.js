@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
+import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from "./lib/auth.js";
 import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PORT } from "./lib/config.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
 import { initializeSse, sendSseEvent, startHeartbeat } from "./lib/sse.js";
@@ -17,6 +18,13 @@ app.set("trust proxy", 1);
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -61,7 +69,11 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.post("/api/review", apiLimiter, upload.single("file"), (req, res) => {
+app.get("/api/auth/session", getAuthSession);
+app.post("/api/auth/login", authLimiter, loginWithPassword);
+app.post("/api/auth/logout", logoutSession);
+
+app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req, res) => {
   const fileError = validateDocxFile(req.file);
 
   if (fileError) {
@@ -87,7 +99,7 @@ app.post("/api/review", apiLimiter, upload.single("file"), (req, res) => {
   void processReviewJob(job, req.file.buffer);
 });
 
-app.get("/api/review/stream/:jobId", (req, res) => {
+app.get("/api/review/stream/:jobId", requireAppAuth, (req, res) => {
   const job = getJob(req.params.jobId);
 
   if (!job) {

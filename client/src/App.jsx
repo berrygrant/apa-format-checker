@@ -3,7 +3,14 @@ import UploadPanel from "./components/UploadPanel.jsx";
 import StatusTimeline from "./components/StatusTimeline.jsx";
 import SectionCard from "./components/SectionCard.jsx";
 import ReportSummary from "./components/ReportSummary.jsx";
-import { createReviewJob, openReviewStream } from "./lib/api.js";
+import {
+  UnauthorizedError,
+  createReviewJob,
+  getAuthSession,
+  loginWithPassword,
+  logoutSession,
+  openReviewStream,
+} from "./lib/api.js";
 import { MAX_DOCX_BYTES, REVIEW_STAGES, SECTION_SLOTS } from "./lib/constants.js";
 
 const EMPTY_STREAM_STATE = {
@@ -43,12 +50,51 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [jobStatus, setJobStatus] = useState("idle");
   const [streamState, setStreamState] = useState(EMPTY_STREAM_STATE);
+  const [authState, setAuthState] = useState({
+    enabled: false,
+    authenticated: false,
+    loading: true,
+    password: "",
+    error: "",
+    isSubmitting: false,
+  });
 
   const deferredSections = useDeferredValue(streamState.sections);
   const deferredReport = useDeferredValue(streamState.report);
 
   useEffect(() => {
+    let isMounted = true;
+
+    getAuthSession()
+      .then((session) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setAuthState((previous) => ({
+          ...previous,
+          enabled: Boolean(session.enabled),
+          authenticated: Boolean(session.authenticated),
+          loading: false,
+          error: "",
+        }));
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setAuthState((previous) => ({
+          ...previous,
+          enabled: true,
+          authenticated: false,
+          loading: false,
+          error: error instanceof Error ? error.message : "Unable to load the password gate.",
+        }));
+      });
+
     return () => {
+      isMounted = false;
       eventSourceRef.current?.close();
     };
   }, []);
@@ -208,6 +254,18 @@ export default function App() {
       setJobId(payload.jobId);
       connectToStream(payload.jobId);
     } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        setAuthState((previous) => ({
+          ...previous,
+          enabled: true,
+          authenticated: false,
+          error: error.message,
+        }));
+        setAppError("");
+        setJobStatus("idle");
+        return;
+      }
+
       setJobStatus("failed");
       setAppError(error instanceof Error ? error.message : "Unable to start the APA review.");
     } finally {
@@ -215,82 +273,184 @@ export default function App() {
     }
   }
 
+  async function handleLogin(event) {
+    event.preventDefault();
+
+    setAuthState((previous) => ({
+      ...previous,
+      isSubmitting: true,
+      error: "",
+    }));
+
+    try {
+      const session = await loginWithPassword(authState.password);
+      setAuthState({
+        enabled: Boolean(session.enabled),
+        authenticated: true,
+        loading: false,
+        password: "",
+        error: "",
+        isSubmitting: false,
+      });
+    } catch (error) {
+      setAuthState((previous) => ({
+        ...previous,
+        authenticated: false,
+        error: error instanceof Error ? error.message : "Unable to verify the password.",
+        isSubmitting: false,
+      }));
+    }
+  }
+
+  async function handleLogout() {
+    resetStreamState();
+    setSelectedFile(null);
+    setFileError("");
+
+    try {
+      await logoutSession();
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Unable to sign out.");
+    }
+
+    setAuthState((previous) => ({
+      ...previous,
+      authenticated: false,
+      password: "",
+      error: "",
+      isSubmitting: false,
+    }));
+  }
+
+  const isGateVisible = authState.loading || (authState.enabled && !authState.authenticated);
+
   return (
     <div className="app-shell">
       <div className="background-orbit background-orbit-left" />
       <div className="background-orbit background-orbit-right" />
 
       <header className="hero">
-        <div className="eyebrow">Thesis APA Formatter</div>
-        <h1>Automated APA 7 review with streamed hybrid validation.</h1>
-        <p>
-          Upload a thesis draft, stream the parser and rule engine, then merge the result with a structured OpenAI
-          review that stays on the server.
-        </p>
+        <div className="hero-topline">
+          <div>
+            <div className="eyebrow">Thesis APA Formatter</div>
+            <h1>Automated APA 7 review with streamed hybrid validation.</h1>
+            <p>
+              Upload a thesis draft, stream the parser and rule engine, then merge the result with a structured OpenAI
+              review that stays on the server.
+            </p>
+          </div>
+
+          {authState.enabled && authState.authenticated ? (
+            <button className="secondary-button hero-action" onClick={handleLogout} type="button">
+              Sign Out
+            </button>
+          ) : null}
+        </div>
       </header>
 
-      <main className="workspace">
-        <UploadPanel
-          error={fileError}
-          file={selectedFile}
-          isBusy={isSubmitting || jobStatus === "processing"}
-          jobId={jobId}
-          onFilePicked={handleFilePicked}
-          onRun={handleRun}
-        />
+      {isGateVisible ? (
+        <main className="auth-workspace">
+          <section className="panel auth-panel">
+            <div className="eyebrow">Protected Access</div>
+            <h2>Enter the shared password to continue.</h2>
+            <p className="panel-copy">
+              This gate only activates on the protected hostname. Once the password is accepted, uploads and streamed
+              review results use the same server-side session.
+            </p>
 
-        <div className="results-column">
-          <StatusTimeline
-            currentStage={streamState.currentStage}
-            history={streamState.statusHistory}
-            progress={streamState.progress}
-            stages={REVIEW_STAGES}
+            {authState.loading ? (
+              <p className="auth-message">Checking access...</p>
+            ) : (
+              <form className="auth-form" onSubmit={handleLogin}>
+                <label className="auth-field">
+                  <span>Password</span>
+                  <input
+                    autoComplete="current-password"
+                    onChange={(event) =>
+                      setAuthState((previous) => ({
+                        ...previous,
+                        password: event.target.value,
+                        error: "",
+                      }))
+                    }
+                    type="password"
+                    value={authState.password}
+                  />
+                </label>
+
+                <button className="primary-button" disabled={authState.isSubmitting || !authState.password.trim()} type="submit">
+                  {authState.isSubmitting ? "Checking..." : "Unlock App"}
+                </button>
+              </form>
+            )}
+
+            {authState.error ? <p className="app-error">{authState.error}</p> : null}
+          </section>
+        </main>
+      ) : (
+        <main className="workspace">
+          <UploadPanel
+            error={fileError}
+            file={selectedFile}
+            isBusy={isSubmitting || jobStatus === "processing"}
+            jobId={jobId}
+            onFilePicked={handleFilePicked}
+            onRun={handleRun}
           />
 
-          <section className="panel sections-panel">
-            <div className="panel-heading">
-              <div>
-                <div className="eyebrow">Section Updates</div>
-                <h3>Live APA review sections</h3>
+          <div className="results-column">
+            <StatusTimeline
+              currentStage={streamState.currentStage}
+              history={streamState.statusHistory}
+              progress={streamState.progress}
+              stages={REVIEW_STAGES}
+            />
+
+            <section className="panel sections-panel">
+              <div className="panel-heading">
+                <div>
+                  <div className="eyebrow">Section Updates</div>
+                  <h3>Live APA review sections</h3>
+                </div>
               </div>
-            </div>
 
-            <div className="sections-grid">
-              {SECTION_SLOTS.map((slot) => (
-                <SectionCard fallbackLabel={slot.label} key={slot.id} section={deferredSections[slot.id]} sectionId={slot.id} />
-              ))}
-            </div>
-          </section>
-
-          {streamState.llmPreview ? (
-            <details className="panel llm-panel">
-              <summary>LLM stream preview</summary>
-              <pre>{streamState.llmPreview}</pre>
-            </details>
-          ) : null}
-
-          {deferredReport ? (
-            <>
-              <ReportSummary report={deferredReport} />
-
-              <details className="panel json-panel">
-                <summary>Raw APA compliance JSON</summary>
-                <pre>{JSON.stringify(deferredReport, null, 2)}</pre>
-              </details>
-            </>
-          ) : (
-            <section className="panel report-placeholder-panel">
-              <div className="eyebrow">Final Output</div>
-              <h3>Structured APA compliance JSON</h3>
-              <p>
-                The final report will appear here after the rule-based checks and OpenAI stage complete.
-              </p>
+              <div className="sections-grid">
+                {SECTION_SLOTS.map((slot) => (
+                  <SectionCard fallbackLabel={slot.label} key={slot.id} section={deferredSections[slot.id]} sectionId={slot.id} />
+                ))}
+              </div>
             </section>
-          )}
 
-          {appError ? <p className="app-error">{appError}</p> : null}
-        </div>
-      </main>
+            {streamState.llmPreview ? (
+              <details className="panel llm-panel">
+                <summary>LLM stream preview</summary>
+                <pre>{streamState.llmPreview}</pre>
+              </details>
+            ) : null}
+
+            {deferredReport ? (
+              <>
+                <ReportSummary report={deferredReport} />
+
+                <details className="panel json-panel">
+                  <summary>Raw APA compliance JSON</summary>
+                  <pre>{JSON.stringify(deferredReport, null, 2)}</pre>
+                </details>
+              </>
+            ) : (
+              <section className="panel report-placeholder-panel">
+                <div className="eyebrow">Final Output</div>
+                <h3>Structured APA compliance JSON</h3>
+                <p>
+                  The final report will appear here after the rule-based checks and OpenAI stage complete.
+                </p>
+              </section>
+            )}
+
+            {appError ? <p className="app-error">{appError}</p> : null}
+          </div>
+        </main>
+      )}
     </div>
   );
 }

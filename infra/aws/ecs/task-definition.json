@@ -41,6 +41,10 @@
         {
           "name": "JOB_TTL_MS",
           "value": "3600000"
+        },
+        {
+          "name": "APP_AUTH_HOST",
+          "value": "apa.lingviz.com"
         }
       ],
       "secrets": [

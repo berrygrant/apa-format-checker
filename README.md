@@ -44,6 +44,10 @@ npm run dev
 - `OPENAI_MODEL`: Structured output capable model. Default `gpt-5-mini`
 - `MAX_UPLOAD_BYTES`: DOCX upload size limit. Default `3145728`
 - `JOB_TTL_MS`: How long completed jobs remain streamable. Default `3600000`
+- `APP_PASSWORD`: Optional shared password. If unset, the app remains open.
+- `APP_SESSION_SECRET`: Optional cookie-signing secret. Defaults to `APP_PASSWORD`.
+- `APP_AUTH_HOST`: Optional hostname scope for the password gate. Default example: `apa.lingviz.com`
+- `AUTH_SESSION_TTL_MS`: Optional auth session lifetime in milliseconds. Default `604800000`
 
 ## API
 
@@ -83,6 +87,7 @@ Server-Sent Events endpoint that emits:
 - The rule-based layer intentionally focuses on checks that can be inferred from raw DOCX text.
 - If `OPENAI_API_KEY` is missing, the application still completes using the rule-based report and flags the LLM stage as skipped.
 - In production, the Express server will serve `client/dist` automatically after the frontend build exists.
+- If `APP_PASSWORD` is set, the UI shows a password screen and the review endpoints require a valid auth cookie. If `APP_AUTH_HOST` is set, that gate only activates on that hostname.
 
 ## AWS Deployment
 

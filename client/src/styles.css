@@ -96,6 +96,20 @@ select {
   box-shadow: 0 28px 90px rgba(0, 38, 100, 0.24);
 }
 
+.hero-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: start;
+}
+
+.hero-action {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
 .hero .eyebrow {
   color: #d8c27a;
 }
@@ -125,6 +139,13 @@ select {
   align-items: start;
 }
 
+.auth-workspace {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
 .results-column {
   display: grid;
   gap: 24px;
@@ -139,6 +160,7 @@ select {
 }
 
 .upload-panel,
+.auth-panel,
 .timeline-panel,
 .sections-panel,
 .report-panel,
@@ -158,6 +180,7 @@ select {
 }
 
 .upload-panel h2,
+.auth-panel h2,
 .panel-heading h3,
 .report-placeholder-panel h3 {
   margin: 10px 0 8px;
@@ -226,6 +249,48 @@ select {
   display: flex;
   gap: 12px;
   margin-top: 18px;
+}
+
+.auth-panel {
+  padding: 28px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.auth-field {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-field span {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.auth-field input {
+  min-height: 52px;
+  padding: 0 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 38, 100, 0.16);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+}
+
+.auth-field input:focus {
+  outline: 2px solid rgba(0, 38, 100, 0.16);
+  border-color: rgba(0, 38, 100, 0.34);
+}
+
+.auth-message {
+  margin-top: 18px;
+  color: var(--muted);
 }
 
 .primary-button,
@@ -744,6 +809,10 @@ select {
 @media (max-width: 720px) {
   .app-shell {
     padding: 28px 16px 48px;
+  }
+
+  .hero-topline {
+    flex-direction: column;
   }
 
   .hero h1 {
