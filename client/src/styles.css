@@ -151,6 +151,10 @@ select {
   gap: 24px;
 }
 
+.results-column > * {
+  min-width: 0;
+}
+
 .panel {
   background: var(--bg-elevated);
   border: 1px solid var(--line);
@@ -193,6 +197,17 @@ select {
 .section-summary {
   color: var(--muted);
   line-height: 1.65;
+}
+
+.disclaimer-note {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--gold-soft);
+  border: 1px solid rgba(132, 114, 72, 0.2);
+  color: #5d4c20;
+  font-size: 0.95rem;
+  line-height: 1.6;
 }
 
 .dropzone {
@@ -736,6 +751,12 @@ select {
   font-weight: 700;
 }
 
+.llm-panel,
+.json-panel {
+  width: 100%;
+  min-width: 0;
+}
+
 .llm-panel pre,
 .json-panel pre {
   margin: 16px 0 0;
@@ -744,6 +765,11 @@ select {
   background: rgba(31, 42, 44, 0.94);
   color: #f6efe4;
   overflow: auto;
+  max-width: 100%;
+  max-height: 28rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 0.84rem;
   line-height: 1.6;
 }

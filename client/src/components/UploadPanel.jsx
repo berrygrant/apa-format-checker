@@ -22,6 +22,10 @@ export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, 
       <p className="panel-copy">
         Drag in a Word document, then stream parser progress, rule-based checks, and the structured OpenAI review.
       </p>
+      <p className="disclaimer-note">
+        Submitted content may be shared with OpenAI during the review process. Do not upload sensitive or confidential data
+        unless that is acceptable for your use case.
+      </p>
 
       <label
         className={`dropzone ${isDragging ? "is-dragging" : ""}`}
@@ -68,4 +72,3 @@ export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, 
     </section>
   );
 }
-
