@@ -939,6 +939,10 @@ select {
     flex-direction: column;
   }
 
+  .hero-contact {
+    text-align: left;
+  }
+
   .hero h1 {
     font-size: clamp(2.2rem, 12vw, 3.4rem);
   }

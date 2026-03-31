@@ -11,6 +11,7 @@ Prioritize actionable APA 7 findings for citations, references, headings, and ti
 Return one issue per discrete problem instead of grouping multiple problems together.
 For every issue, cite the closest available document location using the provided line or reference-entry labels.
 If no precise location exists, use the closest section-level label and say so conservatively.
+Treat citation/reference mismatches conservatively and only report them when the author-year mismatch is clearly supported by the supplied evidence.
 `;
 
 export function buildApaReviewSystemPrompt(reviewMode = DEFAULT_REVIEW_MODE) {

@@ -25,8 +25,32 @@ const HEADING_PATTERNS = [
   { label: "Conclusion", regex: /^\s*conclusion\s*$/im },
 ];
 
+const AUTHOR_PHRASE_PATTERN =
+  "[A-Z][A-Za-z'`-]*(?:\\s+(?:[A-Z][A-Za-z'`-]*|van|von|de|del|der|da|di|la|le|du|den|&|and|et\\s+al\\.?))*?";
+const CITATION_LEAD_IN_PATTERN = [
+  "according to",
+  "as noted by",
+  "as argued by",
+  "as discussed by",
+  "but see",
+  "see also",
+  "see generally",
+  "see",
+  "cf\\.?",
+  "compare",
+  "for example",
+  "for instance",
+  "e\\.g\\.?",
+  "inter alia",
+  "etc\\.?",
+  "contra",
+].join("|");
 const PARENTHETICAL_CITATION_REGEX = /\(([^()]*?(?:19|20)\d{2}[a-z]?[^()]*)\)/g;
-const NARRATIVE_CITATION_REGEX = /\b([A-Z][A-Za-z'`-]+)\s+\(((?:19|20)\d{2}[a-z]?)\)/g;
+const EXPANDED_NARRATIVE_CITATION_REGEX = new RegExp(`\\b(${AUTHOR_PHRASE_PATTERN})\\s+\\(((?:19|20)\\d{2}[a-z]?)\\)`, "g");
+const LEAD_IN_BARE_CITATION_REGEX = new RegExp(
+  `\\b((?:(?:${CITATION_LEAD_IN_PATTERN})(?:,)?\\s+)+${AUTHOR_PHRASE_PATTERN})\\s*,?\\s*((?:19|20)\\d{2}[a-z]?)(\\s*:\\s*\\d+(?:\\s*[\\u2013\\u2014-]\\s*\\d+)?[A-Za-z]?)?`,
+  "g",
+);
 const PAGE_CITATION_REGEX = /\b(?:p|pp|para)\.?\s*\d+/gi;
 const MALFORMED_ET_AL_REGEX = /\bet\.?\s+al(?!\.)\b/gi;
 const NUMBERED_HEADING_REGEX = /^(\d+(?:\.\d+)*)[.)]?\s+(.+)$/;
@@ -72,6 +96,63 @@ function pairKey(author, year) {
   }
 
   return `${normalizeSurname(author)}-${year.toLowerCase()}`;
+}
+
+function stripCitationLeadIn(text) {
+  return String(text || "")
+    .replace(new RegExp(`^(?:(?:${CITATION_LEAD_IN_PATTERN})(?:,)?\\s+)+`, "i"), "")
+    .trim();
+}
+
+function extractPrimaryAuthorPhrase(text, { reference = false } = {}) {
+  let value = stripCitationLeadIn(String(text || ""))
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\bet\s+al\.?/gi, " ")
+    .replace(/\bas cited in\b/gi, " ")
+    .replace(/[()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!value) {
+    return "";
+  }
+
+  if (reference) {
+    const personalAuthorMatch = value.match(/^(.+?),\s*(?:[A-Z]\.|&|and|$)/);
+    if (personalAuthorMatch) {
+      value = personalAuthorMatch[1].trim();
+    }
+  }
+
+  value = value.split(/\s+(?:&|and)\s+/i)[0].trim();
+
+  if (value.includes(",")) {
+    value = value.split(",")[0].trim();
+  }
+
+  return value.replace(/[;,]+$/g, "").trim();
+}
+
+function extractCitationAuthorYear(group) {
+  const yearMatch = group.match(/((?:19|20)\d{2}[a-z]?)/i);
+  if (!yearMatch || typeof yearMatch.index !== "number") {
+    return null;
+  }
+
+  const authorSegment = group
+    .slice(0, yearMatch.index)
+    .replace(/[;,]\s*$/g, "")
+    .trim();
+  const author = extractPrimaryAuthorPhrase(authorSegment);
+
+  if (!author) {
+    return null;
+  }
+
+  return {
+    author,
+    year: yearMatch[1],
+  };
 }
 
 function truncateExcerpt(text, maxLength = 180) {
@@ -266,12 +347,54 @@ function buildSection(id, label, summary, findings, metrics = {}) {
   };
 }
 
-function extractCitationPairs(lineRecords) {
+function extractCitationData(lineRecords) {
   const pairs = [];
+  const formattingIssues = [];
+  const seenPairSignatures = new Set();
+  const seenFormattingIssueSignatures = new Set();
+
+  function pushPair({ author, year, raw, type, lineRecord, matchIndex = 0 }) {
+    const key = pairKey(author, year);
+    const signature = `${lineRecord.lineNumber}:${matchIndex}:${raw}:${type}:${key}`;
+
+    if (seenPairSignatures.has(signature)) {
+      return;
+    }
+
+    seenPairSignatures.add(signature);
+    pairs.push({
+      author,
+      year,
+      raw,
+      type,
+      key,
+      lineNumber: lineRecord.lineNumber,
+      paragraphNumber: lineRecord.paragraphNumber,
+      lineText: lineRecord.text,
+      location: buildLineLocation("citations", lineRecord),
+    });
+  }
+
+  function pushFormattingIssue({ lineRecord, raw, detail, recommendation, matchIndex = 0 }) {
+    const signature = `${lineRecord.lineNumber}:${matchIndex}:${raw}`;
+
+    if (seenFormattingIssueSignatures.has(signature)) {
+      return;
+    }
+
+    seenFormattingIssueSignatures.add(signature);
+    formattingIssues.push({
+      raw,
+      detail,
+      recommendation,
+      location: buildLineLocation("citations", lineRecord),
+    });
+  }
 
   for (const lineRecord of lineRecords) {
     const parentheticalMatches = [...lineRecord.text.matchAll(PARENTHETICAL_CITATION_REGEX)];
-    const narrativeMatches = [...lineRecord.text.matchAll(NARRATIVE_CITATION_REGEX)];
+    const narrativeMatches = [...lineRecord.text.matchAll(EXPANDED_NARRATIVE_CITATION_REGEX)];
+    const leadInBareMatches = [...lineRecord.text.matchAll(LEAD_IN_BARE_CITATION_REGEX)];
 
     for (const match of parentheticalMatches) {
       const groups = match[1]
@@ -280,49 +403,80 @@ function extractCitationPairs(lineRecords) {
         .filter(Boolean);
 
       for (const group of groups) {
-        const authorMatch = group.match(/^([A-Z][A-Za-z'`-]+)/);
-        const yearMatch = group.match(/((?:19|20)\d{2}[a-z]?)/);
+        const parsedCitation = extractCitationAuthorYear(group);
 
-        if (authorMatch && yearMatch) {
-          pairs.push({
-            author: authorMatch[1],
-            year: yearMatch[1],
+        if (parsedCitation) {
+          pushPair({
+            author: parsedCitation.author,
+            year: parsedCitation.year,
             raw: group,
             type: "parenthetical",
-            key: pairKey(authorMatch[1], yearMatch[1]),
-            lineNumber: lineRecord.lineNumber,
-            paragraphNumber: lineRecord.paragraphNumber,
-            lineText: lineRecord.text,
-            location: buildLineLocation("citations", lineRecord),
+            lineRecord,
+            matchIndex: match.index ?? 0,
           });
         }
       }
     }
 
     for (const match of narrativeMatches) {
-      pairs.push({
-        author: match[1],
+      const author = extractPrimaryAuthorPhrase(match[1]);
+
+      if (!author) {
+        continue;
+      }
+
+      pushPair({
+        author,
         year: match[2],
         raw: match[0],
         type: "narrative",
-        key: pairKey(match[1], match[2]),
-        lineNumber: lineRecord.lineNumber,
-        paragraphNumber: lineRecord.paragraphNumber,
-        lineText: lineRecord.text,
-        location: buildLineLocation("citations", lineRecord),
+        lineRecord,
+        matchIndex: match.index ?? 0,
+      });
+    }
+
+    for (const match of leadInBareMatches) {
+      const author = extractPrimaryAuthorPhrase(match[1]);
+
+      if (!author) {
+        continue;
+      }
+
+      pushPair({
+        author,
+        year: match[2],
+        raw: match[0],
+        type: "signal_bare",
+        lineRecord,
+        matchIndex: match.index ?? 0,
+      });
+
+      pushFormattingIssue({
+        lineRecord,
+        raw: match[0],
+        detail: match[3]
+          ? `The citation "${match[0]}" uses a non-APA author-year format with a colon locator.`
+          : `The citation "${match[0]}" uses a non-APA signal-plus-author-year format.`,
+        recommendation: match[3]
+          ? 'Rewrite it in APA author-date form, such as "see Comrie (1976, pp. 6-7)" when a locator is needed.'
+          : 'Rewrite it in APA author-date form, such as "see Comrie (1976)".',
+        matchIndex: match.index ?? 0,
       });
     }
   }
 
-  return pairs;
+  return {
+    pairs,
+    formattingIssues,
+  };
 }
 
 function extractReferencePairs(referenceEntryRecords) {
   return referenceEntryRecords.map((entryRecord) => {
-    const authorMatch = entryRecord.text.match(/^([A-Z][A-Za-z'`-]+)\s*,/);
-    const fallbackAuthorMatch = authorMatch ? null : entryRecord.text.match(/^([A-Z][A-Za-z'`-]+)/);
     const yearMatch = entryRecord.text.match(/\(((?:19|20)\d{2}[a-z]?)\)|\b((?:19|20)\d{2}[a-z]?)\b/);
-    const author = authorMatch?.[1] ?? fallbackAuthorMatch?.[1] ?? "";
+    const leadText =
+      yearMatch && typeof yearMatch.index === "number" ? entryRecord.text.slice(0, yearMatch.index).trim() : entryRecord.text;
+    const author = extractPrimaryAuthorPhrase(leadText, { reference: true });
     const year = yearMatch?.[1] ?? yearMatch?.[2] ?? "";
 
     return {
@@ -509,7 +663,9 @@ function buildHeadline(status, failCount, warningCount) {
 }
 
 export function runRuleBasedReview(parsedDocument) {
-  const citationPairs = extractCitationPairs(parsedDocument.bodyLineRecords);
+  const { pairs: citationPairs, formattingIssues: nonApaCitationFormattingIssues } = extractCitationData(
+    parsedDocument.bodyLineRecords,
+  );
   const referencePairs = extractReferencePairs(parsedDocument.referenceEntryRecords);
   const crossChecks = buildCrossChecks(citationPairs, referencePairs);
   const headingMatches = HEADING_PATTERNS.filter((item) => item.regex.test(parsedDocument.normalizedText)).map(
@@ -723,6 +879,20 @@ export function runRuleBasedReview(parsedDocument) {
         detail: `Detected likely malformed "${malformedEtAlIssue.raw}" usage.`,
         recommendation: 'Use "et al." with a trailing period in APA 7.',
         location: buildLineLocation("citations", malformedEtAlIssue.lineRecord),
+      }),
+    );
+  }
+
+  for (const nonApaCitationFormattingIssue of nonApaCitationFormattingIssues) {
+    itemIssues.push(
+      makeItemIssue({
+        sectionId: "citations",
+        sectionLabel: "Citations",
+        status: "fail",
+        title: "Non-APA citation format",
+        detail: nonApaCitationFormattingIssue.detail,
+        recommendation: nonApaCitationFormattingIssue.recommendation,
+        location: nonApaCitationFormattingIssue.location,
       }),
     );
   }

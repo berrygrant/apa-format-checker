@@ -9,6 +9,7 @@ import multer from "multer";
 import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from "./lib/auth.js";
 import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PDF_MIME_TYPES, PORT } from "./lib/config.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
+import { getRequestMetricsSnapshot, recordReviewRequest } from "./lib/requestMetrics.js";
 import { normalizeReviewMode } from "./lib/reviewMode.js";
 import { initializeSse, sendSseEvent, startHeartbeat } from "./lib/sse.js";
 import { processReviewJob } from "./lib/reviewJob.js";
@@ -81,6 +82,9 @@ app.get("/api/health", (_req, res) => {
 app.get("/api/auth/session", getAuthSession);
 app.post("/api/auth/login", authLimiter, loginWithPassword);
 app.post("/api/auth/logout", logoutSession);
+app.get("/api/metrics/requests", requireAppAuth, (_req, res) => {
+  res.json(getRequestMetricsSnapshot());
+});
 
 app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req, res) => {
   const fileError = validateUploadFile(req.file);
@@ -109,10 +113,12 @@ app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req,
     },
     reviewMode,
   });
+  const requestMetrics = recordReviewRequest();
 
   res.status(202).json({
     jobId: job.id,
     reviewMode: job.reviewMode,
+    requestsToday: requestMetrics.today,
   });
 
   void processReviewJob(job, req.file.buffer);
