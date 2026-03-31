@@ -39,12 +39,13 @@ function publish(job, type, payload, { persist = true } = {}) {
   return event;
 }
 
-export function createJob({ id, fileMeta }) {
+export function createJob({ id, fileMeta, reviewMode }) {
   const job = {
     id,
     status: "queued",
     currentStage: "queued",
     fileMeta,
+    reviewMode,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     history: [],
@@ -71,6 +72,7 @@ export function serializeJob(job) {
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     fileMeta: job.fileMeta,
+    reviewMode: job.reviewMode,
     history: job.history,
     sections: Object.values(job.sections),
     llmPreview: job.llmPreview,

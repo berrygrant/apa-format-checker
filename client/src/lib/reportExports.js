@@ -9,6 +9,10 @@ function slugifyBaseName(filename) {
   return normalized || "apa-review";
 }
 
+function getReviewModeLabel(report) {
+  return report.review?.label || "Standard";
+}
+
 function titleCaseStatus(status) {
   return String(status || "warning")
     .replace(/_/g, " ")
@@ -107,6 +111,7 @@ export function buildComplianceMarkdown(report) {
     `# APA 7 Compliance Issues`,
     ``,
     `- Document: ${report.document.filename}`,
+    `- Review mode: ${getReviewModeLabel(report)}`,
     `- Generated: ${report.generatedAt}`,
     `- Overall status: ${titleCaseStatus(report.summary.overallStatus)}`,
     `- Overall score: ${report.summary.overallScore}/100`,
@@ -173,6 +178,12 @@ export async function downloadComplianceDocx(report) {
       children: [
         new TextRun({ text: "Document: ", bold: true }),
         new TextRun(report.document.filename),
+      ],
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Review mode: ", bold: true }),
+        new TextRun(getReviewModeLabel(report)),
       ],
     }),
     new Paragraph({

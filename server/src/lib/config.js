@@ -19,3 +19,9 @@ export const DOCX_MIME_TYPES = new Set([
   "application/octet-stream",
   "",
 ]);
+
+export const PDF_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/octet-stream",
+  "",
+]);

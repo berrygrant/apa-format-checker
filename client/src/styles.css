@@ -81,7 +81,8 @@ select {
 .workspace {
   position: relative;
   z-index: 1;
-  max-width: 1240px;
+  width: min(90vw, 1480px);
+  max-width: 1480px;
   margin: 0 auto;
 }
 
@@ -132,6 +133,26 @@ select {
   color: rgba(255, 255, 255, 0.82);
 }
 
+.hero-contact {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 26px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.94rem;
+  text-align: right;
+}
+
+.hero-contact a {
+  margin-left: 0.35rem;
+  color: #ffffff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.32);
+}
+
+.hero-contact a:hover {
+  border-bottom-color: rgba(255, 255, 255, 0.72);
+}
+
 .workspace {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
@@ -142,7 +163,8 @@ select {
 .auth-workspace {
   position: relative;
   z-index: 1;
-  max-width: 640px;
+  width: min(90vw, 1480px);
+  max-width: 1480px;
   margin: 0 auto;
 }
 
@@ -199,6 +221,71 @@ select {
   line-height: 1.65;
 }
 
+.review-mode-field {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.review-mode-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.review-mode-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.review-mode-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 38, 100, 0.14);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+}
+
+.review-mode-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(0, 38, 100, 0.28);
+}
+
+.review-mode-button.is-selected {
+  background: linear-gradient(135deg, rgba(0, 38, 100, 0.96), rgba(23, 63, 122, 0.92));
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 12px 30px rgba(0, 38, 100, 0.16);
+}
+
+.review-mode-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.review-mode-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.93rem;
+  line-height: 1.6;
+}
+
 .disclaimer-note {
   margin: 16px 0 0;
   padding: 14px 16px;
@@ -206,6 +293,17 @@ select {
   background: var(--gold-soft);
   border: 1px solid rgba(132, 114, 72, 0.2);
   color: #5d4c20;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.limitations-note {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(0, 38, 100, 0.06);
+  border: 1px solid rgba(0, 38, 100, 0.12);
+  color: var(--muted);
   font-size: 0.95rem;
   line-height: 1.6;
 }

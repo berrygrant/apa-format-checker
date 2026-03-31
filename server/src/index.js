@@ -7,8 +7,9 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from "./lib/auth.js";
-import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PORT } from "./lib/config.js";
+import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PDF_MIME_TYPES, PORT } from "./lib/config.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
+import { normalizeReviewMode } from "./lib/reviewMode.js";
 import { initializeSse, sendSseEvent, startHeartbeat } from "./lib/sse.js";
 import { processReviewJob } from "./lib/reviewJob.js";
 
@@ -41,22 +42,30 @@ const projectRoot = resolve(currentDirectory, "..", "..");
 const clientDist = resolve(projectRoot, "client", "dist");
 const hasBuiltClient = existsSync(clientDist);
 
-function validateDocxFile(file) {
+function validateUploadFile(file) {
   if (!file) {
-    return "A .docx file is required.";
+    return "A .docx or .pdf file is required.";
   }
 
   const extension = extname(file.originalname ?? "").toLowerCase();
 
-  if (extension !== ".docx") {
-    return "Only .docx uploads are supported.";
+  if (extension === ".docx") {
+    if (!DOCX_MIME_TYPES.has(file.mimetype)) {
+      return "The uploaded file does not look like a valid DOCX document.";
+    }
+
+    return null;
   }
 
-  if (!DOCX_MIME_TYPES.has(file.mimetype)) {
-    return "The uploaded file does not look like a valid DOCX document.";
+  if (extension === ".pdf") {
+    if (!PDF_MIME_TYPES.has(file.mimetype)) {
+      return "The uploaded file does not look like a valid PDF document.";
+    }
+
+    return null;
   }
 
-  return null;
+  return "Only .docx and .pdf uploads are supported.";
 }
 
 app.use(express.json({ limit: "256kb" }));
@@ -74,11 +83,19 @@ app.post("/api/auth/login", authLimiter, loginWithPassword);
 app.post("/api/auth/logout", logoutSession);
 
 app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req, res) => {
-  const fileError = validateDocxFile(req.file);
+  const fileError = validateUploadFile(req.file);
+  const reviewMode = normalizeReviewMode(req.body?.reviewMode);
 
   if (fileError) {
     res.status(400).json({
       error: fileError,
+    });
+    return;
+  }
+
+  if (!reviewMode) {
+    res.status(400).json({
+      error: "Invalid review mode.",
     });
     return;
   }
@@ -90,10 +107,12 @@ app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req,
       sizeBytes: req.file.size,
       mimeType: req.file.mimetype,
     },
+    reviewMode,
   });
 
   res.status(202).json({
     jobId: job.id,
+    reviewMode: job.reviewMode,
   });
 
   void processReviewJob(job, req.file.buffer);

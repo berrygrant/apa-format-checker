@@ -6,6 +6,7 @@ export default function ReportSummary({ report }) {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [exportError, setExportError] = useState("");
   const complianceIssueCount = getComplianceIssues(report).length;
+  const reviewModeLabel = report.review?.label || "Standard";
 
   function handleMarkdownDownload() {
     try {
@@ -42,7 +43,7 @@ export default function ReportSummary({ report }) {
       <div className="report-actions">
         <div className="report-action-copy">
           <strong>{complianceIssueCount} item-level issue{complianceIssueCount === 1 ? "" : "s"} available for export</strong>
-          <span>Download every warning/fail issue with its best-effort DOCX location as Markdown or Word.</span>
+          <span>{reviewModeLabel} mode. Download every warning/fail issue with its best-effort DOCX location as Markdown or Word.</span>
         </div>
         <div className="report-action-buttons">
           <button className="secondary-button" onClick={handleMarkdownDownload} type="button">
@@ -92,6 +93,8 @@ export default function ReportSummary({ report }) {
           <ul className="report-list">
             <li>Filename: {report.document.filename}</li>
             <li>File size: {formatBytes(report.document.sizeBytes)}</li>
+            <li>Source format: {report.document.sourceFormat ? report.document.sourceFormat.toUpperCase() : "Unknown"}</li>
+            <li>Review mode: {reviewModeLabel}</li>
             <li>Total words parsed: {report.document.totalWords}</li>
             <li>Reference entries: {report.document.metrics.referenceEntryCount}</li>
             <li>Model: {report.llm.model || "Rule-based only"}</li>

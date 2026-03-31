@@ -1,3 +1,5 @@
+import { getReviewModeConfig, getReviewModeLabel } from "./reviewMode.js";
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -84,6 +86,7 @@ function buildIssueInventory(ruleBasedReport, llmReview) {
 }
 
 export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmReview }) {
+  const reviewModeConfig = getReviewModeConfig(job.reviewMode);
   const llmStatus = llmReview.report?.overallStatus ?? null;
   const overallStatus = combineStatus(ruleBasedReport.summary.overallStatus, llmStatus);
   const llmSummaryStatus = llmStatus ?? (llmReview.skipped ? "skipped" : llmReview.failed ? "failed" : null);
@@ -102,15 +105,22 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmRevi
   ]);
 
   return {
-    version: "2.0.0",
+    version: "2.1.0",
     jobId: job.id,
     generatedAt: new Date().toISOString(),
+    review: {
+      mode: job.reviewMode,
+      label: getReviewModeLabel(job.reviewMode),
+      description: reviewModeConfig.description,
+    },
     document: {
       filename: job.fileMeta.name,
       sizeBytes: job.fileMeta.sizeBytes,
       mimeType: job.fileMeta.mimeType,
+      sourceFormat: parsedDocument.sourceFormat,
       totalWords: parsedDocument.wordCount,
       referencesMissing: parsedDocument.referencesMissing,
+      extractionWindow: parsedDocument.extractionWindow,
       excerpts: {
         titlePage: parsedDocument.titlePageText,
         body: parsedDocument.bodyText,

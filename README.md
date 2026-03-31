@@ -5,6 +5,7 @@ Monorepo for a hybrid APA 7 thesis review application with:
 - React + Vite frontend
 - Express backend
 - DOCX parsing via `mammoth`
+- PDF text extraction via `pdf-parse`
 - Rule-based APA heuristics
 - OpenAI structured-output review
 - Server-Sent Events for progressive streaming updates
@@ -42,7 +43,7 @@ npm run dev
 - `PORT`: Express port. Default `3001`
 - `OPENAI_API_KEY`: Required for the LLM review stage
 - `OPENAI_MODEL`: Structured output capable model. Default `gpt-5-mini`
-- `MAX_UPLOAD_BYTES`: DOCX upload size limit. Default `3145728`
+- `MAX_UPLOAD_BYTES`: Upload size limit for DOCX/PDF files. Default `3145728`
 - `JOB_TTL_MS`: How long completed jobs remain streamable. Default `3600000`
 - `APP_PASSWORD`: Optional shared password. If unset, the app remains open.
 - `APP_SESSION_SECRET`: Optional cookie-signing secret. Defaults to `APP_PASSWORD`.
@@ -55,7 +56,7 @@ npm run dev
 
 Accepts multipart form data with a `file` field.
 
-- Only `.docx`
+- Only `.docx` or `.pdf`
 - Max size defaults to 3 MB
 - Returns `202` with a `jobId`
 
@@ -72,7 +73,7 @@ Server-Sent Events endpoint that emits:
 
 ## Review Pipeline
 
-1. Parse the DOCX with `mammoth`
+1. Parse the uploaded DOCX or PDF into extracted text
 2. Extract:
    - title page excerpt
    - body excerpt
@@ -84,7 +85,7 @@ Server-Sent Events endpoint that emits:
 
 ## Notes
 
-- The rule-based layer intentionally focuses on checks that can be inferred from raw DOCX text.
+- The rule-based layer intentionally focuses on checks that can be inferred from extracted document text, not native page layout.
 - If `OPENAI_API_KEY` is missing, the application still completes using the rule-based report and flags the LLM stage as skipped.
 - In production, the Express server will serve `client/dist` automatically after the frontend build exists.
 - If `APP_PASSWORD` is set, the UI shows a password screen and the review endpoints require a valid auth cookie. If `APP_AUTH_HOST` is set, that gate only activates on that hostname.

@@ -15,9 +15,10 @@ function throwIfUnauthorized(response, payload) {
   }
 }
 
-export async function createReviewJob(file) {
+export async function createReviewJob(file, reviewMode = "standard") {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("reviewMode", reviewMode);
 
   const response = await fetch("/api/review", {
     method: "POST",

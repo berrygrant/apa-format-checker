@@ -1,7 +1,6 @@
 import mammoth from "mammoth";
-
-const TITLE_PAGE_WORD_LIMIT = 400;
-const BODY_WORD_LIMIT = 2000;
+import { PDFParse } from "pdf-parse";
+import { DEFAULT_REVIEW_MODE, getReviewModeConfig } from "./reviewMode.js";
 
 function normalizeText(input) {
   return input
@@ -205,9 +204,40 @@ function extractReferenceEntryRecords(rawLines, referencesHeadingIndex) {
   return singleLineEntries;
 }
 
-export async function parseDocxBuffer(buffer) {
+async function extractDocxRawText(buffer) {
   const result = await mammoth.extractRawText({ buffer });
-  const normalizedText = normalizeText(result.value ?? "");
+
+  return {
+    sourceFormat: "docx",
+    sourceLabel: "DOCX",
+    rawText: result.value ?? "",
+    parserMessages: result.messages ?? [],
+  };
+}
+
+async function extractPdfRawText(buffer) {
+  const parser = new PDFParse({ data: buffer });
+
+  try {
+    const result = await parser.getText();
+
+    return {
+      sourceFormat: "pdf",
+      sourceLabel: "PDF",
+      rawText: result.text ?? "",
+      parserMessages: [],
+    };
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+}
+
+function buildParsedDocument(rawExtraction, options = {}) {
+  const reviewMode = options.reviewMode ?? DEFAULT_REVIEW_MODE;
+  const reviewModeConfig = getReviewModeConfig(reviewMode);
+  const { titlePageWords, bodyWords, referencesWords, annotatedTitleLines, annotatedBodyLines, annotatedReferenceEntries } =
+    reviewModeConfig.extraction;
+  const normalizedText = normalizeText(rawExtraction.rawText ?? "");
   const rawLines = normalizedText ? normalizedText.split("\n") : [];
   const referencesHeadingIndex = rawLines.findIndex((line) => /^references\s*$/i.test(line.trim()));
   const lineRecords = buildLineRecords(rawLines, referencesHeadingIndex);
@@ -216,8 +246,8 @@ export async function parseDocxBuffer(buffer) {
   const referenceLineRecords = lineRecords.filter((lineRecord) => lineRecord.zone === "references");
   const { titlePageLineRecords, bodyLineRecords } = splitMainLinesByWordBudget(
     mainLineRecords,
-    TITLE_PAGE_WORD_LIMIT,
-    BODY_WORD_LIMIT,
+    titlePageWords,
+    bodyWords,
   );
 
   const preReferencesText =
@@ -227,7 +257,18 @@ export async function parseDocxBuffer(buffer) {
   const referenceEntryRecords = extractReferenceEntryRecords(rawLines, referencesHeadingIndex);
 
   return {
-    rawText: result.value ?? "",
+    reviewMode,
+    sourceFormat: rawExtraction.sourceFormat,
+    sourceLabel: rawExtraction.sourceLabel,
+    extractionWindow: {
+      titlePageWords,
+      bodyWords,
+      referencesWords,
+      annotatedTitleLines,
+      annotatedBodyLines,
+      annotatedReferenceEntries,
+    },
+    rawText: rawExtraction.rawText ?? "",
     normalizedText,
     lines: lineRecords.map((lineRecord) => lineRecord.text),
     lineRecords,
@@ -237,7 +278,7 @@ export async function parseDocxBuffer(buffer) {
     bodyLineRecords,
     segments: segmentRecords.map((segmentRecord) => segmentRecord.text),
     segmentRecords,
-    parserMessages: result.messages ?? [],
+    parserMessages: rawExtraction.parserMessages ?? [],
     titlePageText: titlePageLineRecords.map((lineRecord) => lineRecord.text).join(" "),
     bodyText: bodyLineRecords.map((lineRecord) => lineRecord.text).join(" "),
     preReferencesText,
@@ -256,8 +297,26 @@ export async function parseDocxBuffer(buffer) {
   };
 }
 
+export async function parseDocumentBuffer(buffer, fileMeta, options = {}) {
+  const filename = String(fileMeta?.name ?? "").toLowerCase();
+  const mimeType = String(fileMeta?.mimeType ?? "").toLowerCase();
+  const isPdf = filename.endsWith(".pdf") || mimeType === "application/pdf";
+
+  if (isPdf) {
+    return buildParsedDocument(await extractPdfRawText(buffer), options);
+  }
+
+  return buildParsedDocument(await extractDocxRawText(buffer), options);
+}
+
+export async function parseDocxBuffer(buffer, options = {}) {
+  return buildParsedDocument(await extractDocxRawText(buffer), options);
+}
+
 export function summarizeParsedDocument(parsedDocument) {
   return {
+    sourceFormat: parsedDocument.sourceFormat,
+    sourceLabel: parsedDocument.sourceLabel,
     wordCount: parsedDocument.wordCount,
     referencesMissing: parsedDocument.referencesMissing,
     referenceEntryCount: parsedDocument.metrics.referenceEntryCount,

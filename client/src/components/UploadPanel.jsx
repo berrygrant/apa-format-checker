@@ -1,9 +1,20 @@
 import { useId, useState } from "react";
 import { formatBytes } from "../lib/formatters.js";
 
-export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, onRun }) {
+export default function UploadPanel({
+  file,
+  error,
+  isBusy,
+  jobId,
+  onFilePicked,
+  onReviewModeChange,
+  onRun,
+  reviewMode,
+  reviewModes,
+}) {
   const [isDragging, setIsDragging] = useState(false);
   const inputId = useId();
+  const selectedReviewMode = reviewModes.find((mode) => mode.id === reviewMode) ?? reviewModes[0];
 
   function handleDrop(event) {
     event.preventDefault();
@@ -18,14 +29,28 @@ export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, 
   return (
     <section className="panel upload-panel">
       <div className="eyebrow">Upload</div>
-      <h2>Run an APA 7 thesis review from a DOCX upload.</h2>
+      <h2>Upload your Thesis</h2>
       <p className="panel-copy">
-        Drag in a Word document, then stream parser progress, rule-based checks, and the structured OpenAI review.
+        Drag in a Word document or PDF, then stream parser progress, rule-based checks, and the structured OpenAI review.
       </p>
-      <p className="disclaimer-note">
-        Submitted content may be shared with OpenAI during the review process. Do not upload sensitive or confidential data
-        unless that is acceptable for your use case.
-      </p>
+      <div aria-label="Review mode" className="review-mode-field" role="radiogroup">
+        <span className="review-mode-label">Review mode</span>
+        <div className="review-mode-options">
+          {reviewModes.map((mode) => (
+            <button
+              aria-pressed={reviewMode === mode.id}
+              className={`review-mode-button ${reviewMode === mode.id ? "is-selected" : ""}`}
+              disabled={isBusy}
+              key={mode.id}
+              onClick={() => onReviewModeChange(mode.id)}
+              type="button"
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+        <p className="review-mode-hint">{selectedReviewMode.description}</p>
+      </div>
 
       <label
         className={`dropzone ${isDragging ? "is-dragging" : ""}`}
@@ -39,7 +64,7 @@ export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, 
           id={inputId}
           type="file"
           hidden
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
           onChange={(event) => {
             const nextFile = event.target.files?.[0];
             if (nextFile) {
@@ -47,7 +72,7 @@ export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, 
             }
           }}
         />
-        <span className="dropzone-badge">DOCX only</span>
+        <span className="dropzone-badge">DOCX or PDF</span>
         <strong>{file ? file.name : "Drop a thesis document here"}</strong>
         <span>{file ? formatBytes(file.size) : "Maximum file size: 3 MB"}</span>
       </label>
@@ -60,6 +85,16 @@ export default function UploadPanel({ file, error, isBusy, jobId, onFilePicked, 
           {isBusy ? "Running APA Check..." : "Run APA Check"}
         </button>
       </div>
+
+      <p className="disclaimer-note">
+        Submitted content may be shared with OpenAI during the review process. Do not upload sensitive or confidential data
+        unless that is acceptable for your use case.
+      </p>
+
+      <p className="limitations-note">
+        This tool cannot directly validate margins, font size, line spacing, page numbers, or other native page-layout
+        settings. Confirm those manually in the original document.
+      </p>
 
       {jobId ? (
         <div className="job-chip">

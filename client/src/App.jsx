@@ -11,7 +11,7 @@ import {
   logoutSession,
   openReviewStream,
 } from "./lib/api.js";
-import { MAX_DOCX_BYTES, REVIEW_STAGES, SECTION_SLOTS } from "./lib/constants.js";
+import { MAX_DOCX_BYTES, REVIEW_MODES, REVIEW_STAGES, SECTION_SLOTS } from "./lib/constants.js";
 
 const EMPTY_STREAM_STATE = {
   currentStage: "idle",
@@ -25,15 +25,17 @@ const EMPTY_STREAM_STATE = {
 
 function fileValidationError(file) {
   if (!file) {
-    return "Choose a .docx file to begin.";
+    return "Choose a .docx or .pdf file to begin.";
   }
 
-  if (!file.name.toLowerCase().endsWith(".docx")) {
-    return "Only .docx uploads are supported.";
+  const filename = file.name.toLowerCase();
+
+  if (!filename.endsWith(".docx") && !filename.endsWith(".pdf")) {
+    return "Only .docx and .pdf uploads are supported.";
   }
 
   if (file.size > MAX_DOCX_BYTES) {
-    return "The document exceeds the 3 MB limit.";
+    return "The file exceeds the 3 MB limit.";
   }
 
   return "";
@@ -44,6 +46,7 @@ export default function App() {
   const terminalEventRef = useRef(false);
 
   const [selectedFile, setSelectedFile] = useState(null);
+  const [reviewMode, setReviewMode] = useState(REVIEW_MODES[0].id);
   const [fileError, setFileError] = useState("");
   const [appError, setAppError] = useState("");
   const [jobId, setJobId] = useState("");
@@ -250,7 +253,7 @@ export default function App() {
     });
 
     try {
-      const payload = await createReviewJob(fileToReview);
+      const payload = await createReviewJob(fileToReview, reviewMode);
       setJobId(payload.jobId);
       connectToStream(payload.jobId);
     } catch (error) {
@@ -346,6 +349,9 @@ export default function App() {
             </button>
           ) : null}
         </div>
+        <div className="hero-contact">
+          Questions? Contact <a href="mailto:grant.berry@villanova.edu">grant.berry@villanova.edu</a>
+        </div>
       </header>
 
       {isGateVisible ? (
@@ -395,7 +401,10 @@ export default function App() {
             isBusy={isSubmitting || jobStatus === "processing"}
             jobId={jobId}
             onFilePicked={handleFilePicked}
+            onReviewModeChange={setReviewMode}
             onRun={handleRun}
+            reviewMode={reviewMode}
+            reviewModes={REVIEW_MODES}
           />
 
           <div className="results-column">

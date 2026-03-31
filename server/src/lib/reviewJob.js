@@ -1,18 +1,20 @@
-import { parseDocxBuffer, summarizeParsedDocument } from "./docxParser.js";
+import { parseDocumentBuffer, summarizeParsedDocument } from "./docxParser.js";
 import { runRuleBasedReview } from "./ruleChecks.js";
 import { runOpenAiReview } from "./openaiReview.js";
 import { buildFinalReport } from "./reportBuilder.js";
 import { appendLlmPreview, completeJob, failJob, setJobStage, upsertJobSection } from "./jobStore.js";
 
 function createParserSection(summary) {
+  const sourceLabel = summary.sourceLabel || "document";
+
   return {
     id: "parser",
     label: "Parser",
     status: summary.referencesMissing || summary.parserMessages.length > 0 ? "warning" : "pass",
     score: summary.referencesMissing ? 78 : 95,
     summary: summary.referencesMissing
-      ? 'The DOCX parsed, but a standalone "References" heading was not detected.'
-      : "The DOCX parsed successfully and the review excerpts were extracted.",
+      ? `The ${sourceLabel} parsed, but a standalone "References" heading was not detected in the extracted text.`
+      : `The ${sourceLabel} parsed successfully and the review excerpts were extracted.`,
     findings: [
       {
         id: "parser-summary",
@@ -107,8 +109,13 @@ function createLlmSection(llmReview) {
 
 export async function processReviewJob(job, buffer) {
   try {
-    setJobStage(job, "parsing_document", "Parsing document...", 10);
-    const parsedDocument = await parseDocxBuffer(buffer);
+    setJobStage(
+      job,
+      "parsing_document",
+      job.reviewMode === "comprehensive" ? "Parsing document for comprehensive review..." : "Parsing document...",
+      10,
+    );
+    const parsedDocument = await parseDocumentBuffer(buffer, job.fileMeta, { reviewMode: job.reviewMode });
     const parsedSummary = summarizeParsedDocument(parsedDocument);
     upsertJobSection(job, createParserSection(parsedSummary));
 
@@ -137,7 +144,11 @@ export async function processReviewJob(job, buffer) {
     setJobStage(
       job,
       "llm_review",
-      process.env.OPENAI_API_KEY ? "Streaming OpenAI APA review..." : "Skipping OpenAI review and finalizing...",
+      process.env.OPENAI_API_KEY
+        ? job.reviewMode === "comprehensive"
+          ? "Streaming comprehensive OpenAI APA review..."
+          : "Streaming OpenAI APA review..."
+        : "Skipping OpenAI review and finalizing...",
       86,
     );
 
@@ -146,6 +157,7 @@ export async function processReviewJob(job, buffer) {
       fileMeta: job.fileMeta,
       parsedDocument,
       ruleBasedReport,
+      reviewMode: job.reviewMode,
       onTextDelta: (delta) => appendLlmPreview(job, delta),
     });
 

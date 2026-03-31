@@ -1,5 +1,18 @@
 export const MAX_DOCX_BYTES = 3 * 1024 * 1024;
 
+export const REVIEW_MODES = [
+  {
+    id: "standard",
+    label: "Standard",
+    description: "Balanced review focused on the most actionable APA issues supported by extracted evidence.",
+  },
+  {
+    id: "comprehensive",
+    label: "Comprehensive",
+    description: "Larger evidence window and a more exhaustive issue sweep across supported APA deviations.",
+  },
+];
+
 export const REVIEW_STAGES = [
   { id: "queued", label: "Queued" },
   { id: "parsing_document", label: "Parsing document" },
@@ -20,4 +33,3 @@ export const SECTION_SLOTS = [
   { id: "references", label: "References" },
   { id: "llm", label: "OpenAI Review" },
 ];
-

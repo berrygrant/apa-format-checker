@@ -1,6 +1,7 @@
 import { takeReferenceExcerpt } from "../lib/docxParser.js";
+import { DEFAULT_REVIEW_MODE, getReviewModeConfig } from "../lib/reviewMode.js";
 
-export const APA_REVIEW_SYSTEM_PROMPT = `
+export const BASE_APA_REVIEW_SYSTEM_PROMPT = `
 You are an APA 7 thesis formatting reviewer.
 
 Assess only what can be inferred from the supplied excerpts and rule-based findings.
@@ -11,6 +12,15 @@ Return one issue per discrete problem instead of grouping multiple problems toge
 For every issue, cite the closest available document location using the provided line or reference-entry labels.
 If no precise location exists, use the closest section-level label and say so conservatively.
 `;
+
+export function buildApaReviewSystemPrompt(reviewMode = DEFAULT_REVIEW_MODE) {
+  const reviewModeConfig = getReviewModeConfig(reviewMode);
+
+  return `${BASE_APA_REVIEW_SYSTEM_PROMPT.trim()}
+
+Review mode: ${reviewModeConfig.label}.
+${reviewModeConfig.llmInstruction}`.trim();
+}
 
 function formatAnnotatedLines(lineRecords, maxItems = 120) {
   return lineRecords.slice(0, maxItems).map((lineRecord) => ({
@@ -34,18 +44,30 @@ function formatAnnotatedReferences(referenceEntryRecords, maxItems = 80) {
   }));
 }
 
-export function buildApaReviewUserInput({ fileMeta, parsedDocument, ruleBasedReport }) {
+export function buildApaReviewUserInput({ fileMeta, parsedDocument, ruleBasedReport, reviewMode = DEFAULT_REVIEW_MODE }) {
+  const reviewModeConfig = getReviewModeConfig(reviewMode);
+  const { extraction } = reviewModeConfig;
+
   return JSON.stringify(
     {
+      reviewMode: {
+        id: reviewMode,
+        label: reviewModeConfig.label,
+        description: reviewModeConfig.description,
+      },
       document: {
         filename: fileMeta.name,
         sizeBytes: fileMeta.sizeBytes,
+        sourceFormat: parsedDocument.sourceFormat,
         titlePageExcerpt: parsedDocument.titlePageText,
         bodyExcerpt: parsedDocument.bodyText,
-        referencesExcerpt: takeReferenceExcerpt(parsedDocument.referencesText, 2500),
-        annotatedTitlePageLines: formatAnnotatedLines(parsedDocument.titlePageLineRecords, 40),
-        annotatedBodyLines: formatAnnotatedLines(parsedDocument.bodyLineRecords, 160),
-        annotatedReferenceEntries: formatAnnotatedReferences(parsedDocument.referenceEntryRecords, 120),
+        referencesExcerpt: takeReferenceExcerpt(parsedDocument.referencesText, extraction.referencesWords),
+        annotatedTitlePageLines: formatAnnotatedLines(parsedDocument.titlePageLineRecords, extraction.annotatedTitleLines),
+        annotatedBodyLines: formatAnnotatedLines(parsedDocument.bodyLineRecords, extraction.annotatedBodyLines),
+        annotatedReferenceEntries: formatAnnotatedReferences(
+          parsedDocument.referenceEntryRecords,
+          extraction.annotatedReferenceEntries,
+        ),
         referencesMissing: parsedDocument.referencesMissing,
         metrics: {
           totalWords: parsedDocument.wordCount,

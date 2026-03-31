@@ -46,6 +46,22 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function buildReviewLimitations(parsedDocument) {
+  if (parsedDocument?.sourceFormat === "pdf") {
+    return [
+      "Margins, font, line spacing, page numbers, and exact PDF layout are not directly verifiable from extracted PDF text.",
+      "Issue locations are best-effort line and entry references derived from extracted text, not native PDF page coordinates.",
+      "Heading levels, indentation, and extracted text fidelity should be confirmed manually in the original PDF.",
+    ];
+  }
+
+  return [
+    "Margins, font, line spacing, page numbers, and exact Word layout are not directly verifiable from Mammoth raw-text extraction.",
+    "Issue locations are best-effort line and entry references derived from extracted text, not native Word page coordinates.",
+    "Hanging indents and exact heading levels should be confirmed in Word even when the text checks pass.",
+  ];
+}
+
 function normalizeSurname(input) {
   return input.toLowerCase().replace(/[^a-z]/g, "");
 }
@@ -1220,10 +1236,6 @@ export function runRuleBasedReview(parsedDocument) {
       numberedHeadingIssueCount: numberedHeadingIssues.length,
       itemIssueCount: itemIssues.length,
     },
-    limitations: [
-      "Margins, font, line spacing, page numbers, and exact Word layout are not directly verifiable from Mammoth raw-text extraction.",
-      "Issue locations are best-effort line and entry references derived from extracted text, not native Word page coordinates.",
-      "Hanging indents and exact heading levels should be confirmed in Word even when the text checks pass.",
-    ],
+    limitations: buildReviewLimitations(parsedDocument),
   };
 }

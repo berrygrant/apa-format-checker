@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import { APA_REVIEW_SCHEMA } from "./apaReportSchema.js";
 import { OPENAI_MODEL } from "./config.js";
-import { APA_REVIEW_SYSTEM_PROMPT, buildApaReviewUserInput } from "../prompts/apaReviewPrompt.js";
+import { buildApaReviewSystemPrompt, buildApaReviewUserInput } from "../prompts/apaReviewPrompt.js";
 
 let clientInstance = null;
 
@@ -62,7 +62,7 @@ function normalizeReport(report) {
   };
 }
 
-export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, onTextDelta }) {
+export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, reviewMode, onTextDelta }) {
   if (!process.env.OPENAI_API_KEY) {
     return {
       skipped: true,
@@ -81,7 +81,7 @@ export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBas
       input: [
         {
           role: "system",
-          content: APA_REVIEW_SYSTEM_PROMPT,
+          content: buildApaReviewSystemPrompt(reviewMode),
         },
         {
           role: "user",
@@ -89,6 +89,7 @@ export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBas
             fileMeta,
             parsedDocument,
             ruleBasedReport,
+            reviewMode,
           }),
         },
       ],
