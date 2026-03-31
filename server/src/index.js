@@ -114,6 +114,19 @@ app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req,
     reviewMode,
   });
   const requestMetrics = recordReviewRequest();
+  const sourceExtension = extname(req.file.originalname ?? "").toLowerCase() || "unknown";
+
+  console.log(
+    JSON.stringify({
+      event: "review_request",
+      jobId: job.id,
+      reviewMode: job.reviewMode,
+      sourceFormat: sourceExtension,
+      sizeBytes: req.file.size,
+      requestsToday: requestMetrics.today,
+      timestamp: new Date().toISOString(),
+    }),
+  );
 
   res.status(202).json({
     jobId: job.id,
