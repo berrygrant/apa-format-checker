@@ -50,7 +50,15 @@
       "secrets": [
         {
           "name": "OPENAI_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:723173543836:secret:prod/apa-format-checker-nhpYMl"
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:723173543836:secret:prod/apa-format-checker-nhpYMl:OPENAI_API_KEY::"
+        },
+        {
+          "name": "APP_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:723173543836:secret:prod/apa-format-checker-nhpYMl:APP_PASSWORD::"
+        },
+        {
+          "name": "APP_SESSION_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:723173543836:secret:prod/apa-format-checker-nhpYMl:APP_SESSION_SECRET::"
         }
       ],
       "healthCheck": {

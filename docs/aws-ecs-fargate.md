@@ -29,7 +29,7 @@ If you want multi-task ECS later, move job state and SSE subscriptions to shared
 - `ECS` service with `desiredCount = 1`
 - `Application Load Balancer` targeting container port `3001`
 - `CloudWatch Logs` group `/ecs/thesis-apa-formatter`
-- `Secrets Manager` secret for `OPENAI_API_KEY`
+- `Secrets Manager` JSON secret for `OPENAI_API_KEY`, `APP_PASSWORD`, and `APP_SESSION_SECRET`
 
 Use `/api/health` for both the container health check and the target group health check.
 
@@ -83,7 +83,17 @@ Create a private ECR repository named `thesis-apa-formatter`.
 
 ### 2. Secrets Manager secret
 
-Create a secret that stores your OpenAI API key. Put its ARN into `infra/aws/ecs/task-definition.json` as `valueFrom`.
+Create a Secrets Manager secret as a JSON object and store all three application secrets in it:
+
+```json
+{
+  "OPENAI_API_KEY": "sk-...",
+  "APP_PASSWORD": "your-shared-password",
+  "APP_SESSION_SECRET": "a-long-random-cookie-signing-secret"
+}
+```
+
+The task definition expects JSON-key selectors on the existing secret ARN in `infra/aws/ecs/task-definition.json`.
 
 ### 3. CloudWatch Logs group
 
@@ -210,6 +220,7 @@ The repo templates are now prefilled for:
 - AWS account `723173543836`
 - AWS region `us-east-1`
 - OpenAI secret `arn:aws:secretsmanager:us-east-1:723173543836:secret:prod/apa-format-checker-nhpYMl`
+- Required JSON keys inside that secret: `OPENAI_API_KEY`, `APP_PASSWORD`, and `APP_SESSION_SECRET`
 - GitHub repo `berrygrant/apa-format-checker`
 
 Before deploying, verify those values still match the AWS resources you create.
