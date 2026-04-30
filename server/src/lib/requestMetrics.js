@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(currentDirectory, "..", "..");
-const dataDirectory = resolve(projectRoot, "server-data");
+const isLambdaRuntime = Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+const dataDirectory =
+  process.env.REQUEST_METRICS_DIR || (isLambdaRuntime ? "/tmp/thesis-apa-formatter" : resolve(projectRoot, "server-data"));
 const metricsFile = resolve(dataDirectory, "request-metrics.json");
 const metricsTimeZone = process.env.REQUEST_METRICS_TIME_ZONE || process.env.TZ || "America/New_York";
 const metricsDateFormatter = new Intl.DateTimeFormat("en-CA", {
