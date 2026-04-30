@@ -35,6 +35,117 @@ export async function createReviewJob(file, reviewMode = "standard") {
   return payload;
 }
 
+function parseEventPayload(event) {
+  try {
+    return JSON.parse(event.data);
+  } catch {
+    return null;
+  }
+}
+
+function dispatchStreamEvent(event, handlers) {
+  const payload = parseEventPayload(event);
+
+  if (!payload) {
+    return;
+  }
+
+  const eventHandlers = {
+    snapshot: handlers.onSnapshot,
+    status: handlers.onStatus,
+    section: handlers.onSection,
+    llm_delta: handlers.onLlmDelta,
+    complete: handlers.onComplete,
+    review_error: handlers.onErrorEvent,
+  };
+
+  eventHandlers[event.type]?.(payload);
+}
+
+function parseSseEvent(rawEvent) {
+  const event = {
+    type: "message",
+    data: "",
+  };
+
+  for (const line of rawEvent.split(/\r?\n/)) {
+    if (!line || line.startsWith(":")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf(":");
+    const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+    const rawValue = separatorIndex === -1 ? "" : line.slice(separatorIndex + 1);
+    const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
+
+    if (field === "event") {
+      event.type = value || "message";
+    } else if (field === "data") {
+      event.data += event.data ? `\n${value}` : value;
+    } else if (field === "id") {
+      event.id = value;
+    }
+  }
+
+  return event.data ? event : null;
+}
+
+async function readSseStream(body, handlers) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? "";
+
+    for (const rawEvent of events) {
+      const event = parseSseEvent(rawEvent);
+      if (event) {
+        dispatchStreamEvent(event, handlers);
+      }
+    }
+  }
+
+  buffer += decoder.decode();
+  const event = parseSseEvent(buffer);
+  if (event) {
+    dispatchStreamEvent(event, handlers);
+  }
+}
+
+export async function runReviewStream(file, reviewMode = "standard", handlers = {}, options = {}) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("reviewMode", reviewMode);
+
+  const response = await fetch("/api/review/stream", {
+    method: "POST",
+    body: formData,
+    signal: options.signal,
+  });
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!response.ok) {
+    const payload = contentType.includes("application/json") ? await parsePayload(response) : {};
+    throwIfUnauthorized(response, payload);
+    throw new Error(payload.error || "Unable to run the APA review.");
+  }
+
+  if (!response.body) {
+    throw new Error("The review stream did not return a readable response body.");
+  }
+
+  await readSseStream(response.body, handlers);
+}
+
 export async function getAuthSession() {
   const response = await fetch("/api/auth/session");
   const payload = await parsePayload(response);
@@ -73,14 +184,6 @@ export async function logoutSession() {
   if (!response.ok) {
     const payload = await parsePayload(response);
     throw new Error(payload.error || "Unable to sign out.");
-  }
-}
-
-function parseEventPayload(event) {
-  try {
-    return JSON.parse(event.data);
-  } catch {
-    return null;
   }
 }
 

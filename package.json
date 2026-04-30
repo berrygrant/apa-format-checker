@@ -11,7 +11,8 @@
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
     "build": "npm --workspace client run build",
-    "start": "npm --workspace server run start"
+    "start": "npm --workspace server run start",
+    "smoke:review": "node scripts/smoke-review-stream.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
@@ -20,4 +21,3 @@
     "node": ">=20.10.0"
   }
 }
-

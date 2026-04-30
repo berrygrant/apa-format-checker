@@ -16,21 +16,88 @@
       "Resource": "*"
     },
     {
-      "Sid": "EcsDeploy",
+      "Sid": "CloudFormationDeploy",
       "Effect": "Allow",
       "Action": [
-        "ecs:DescribeServices",
-        "ecs:DescribeTaskDefinition",
-        "ecs:RegisterTaskDefinition",
-        "ecs:UpdateService"
+        "cloudformation:CreateChangeSet",
+        "cloudformation:CreateStack",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:GetTemplate",
+        "cloudformation:UpdateStack"
+      ],
+      "Resource": "arn:aws:cloudformation:us-east-1:723173543836:stack/thesis-apa-formatter-lambda/*"
+    },
+    {
+      "Sid": "LambdaDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:AddPermission",
+        "lambda:CreateFunction",
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionUrlConfig",
+        "lambda:RemovePermission",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:723173543836:function:thesis-apa-formatter"
+    },
+    {
+      "Sid": "CloudFrontDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:ListDistributions",
+        "cloudfront:TagResource",
+        "cloudfront:UpdateDistribution"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "PassExecutionRoleToEcs",
+      "Sid": "RouteCustomDomain",
       "Effect": "Allow",
-      "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::723173543836:role/ecsTaskExecutionRole-thesis-apa-formatter"
+      "Action": [
+        "route53:ChangeResourceRecordSets",
+        "route53:GetChange",
+        "route53:ListResourceRecordSets"
+      ],
+      "Resource": [
+        "arn:aws:route53:::hostedzone/Z06039273CWG1NUO8MR2K",
+        "arn:aws:route53:::change/*"
+      ]
+    },
+    {
+      "Sid": "ReadCloudFrontCertificate",
+      "Effect": "Allow",
+      "Action": [
+        "acm:DescribeCertificate",
+        "acm:ListCertificates"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateLambdaLogsRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::723173543836:role/thesis-apa-formatter-lambda-execution"
+    },
+    {
+      "Sid": "ReadApplicationSecretForDynamicReferences",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-east-1:723173543836:secret:prod/apa-format-checker-*"
     }
   ]
 }

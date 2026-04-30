@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lambda deployment for the Thesis APA Formatter web app.
+
+Parameters:
+  FunctionName:
+    Type: String
+    Default: thesis-apa-formatter
+  ImageUri:
+    Type: String
+  SecretId:
+    Type: String
+    Default: prod/apa-format-checker
+  DomainName:
+    Type: String
+    Default: apa.lingviz.com
+  CertificateArn:
+    Type: String
+    Default: arn:aws:acm:us-east-1:723173543836:certificate/b1255947-4f28-4378-9017-7631ef894f2b
+  OpenAIModel:
+    Type: String
+    Default: gpt-5.4-mini
+  MaxUploadBytes:
+    Type: String
+    Default: "3145728"
+  JobTtlMs:
+    Type: String
+    Default: "3600000"
+  MemorySize:
+    Type: Number
+    Default: 2048
+  Timeout:
+    Type: Number
+    Default: 900
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${FunctionName}-lambda-execution"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Architectures:
+        - x86_64
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Environment:
+        Variables:
+          NODE_ENV: production
+          PORT: "3001"
+          AWS_LWA_PORT: "3001"
+          AWS_LWA_READINESS_CHECK_PATH: /api/health
+          AWS_LWA_INVOKE_MODE: response_stream
+          AWS_LWA_ENABLE_COMPRESSION: "false"
+          OPENAI_MODEL: !Ref OpenAIModel
+          MAX_UPLOAD_BYTES: !Ref MaxUploadBytes
+          JOB_TTL_MS: !Ref JobTtlMs
+          OPENAI_API_KEY: !Sub "{{resolve:secretsmanager:${SecretId}:SecretString:OPENAI_API_KEY}}"
+          APP_PASSWORD: !Sub "{{resolve:secretsmanager:${SecretId}:SecretString:APP_PASSWORD}}"
+          APP_SESSION_SECRET: !Sub "{{resolve:secretsmanager:${SecretId}:SecretString:APP_SESSION_SECRET}}"
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      InvokeMode: RESPONSE_STREAM
+      TargetFunctionArn: !Ref Function
+
+  FunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref Function
+      FunctionUrlAuthType: NONE
+      Principal: "*"
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref DomainName
+        Comment: !Sub "${FunctionName} Lambda Function URL distribution"
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          Compress: false
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          TargetOriginId: lambda-function-url
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - Id: lambda-function-url
+            DomainName: !Select [2, !Split ["/", !GetAtt FunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60
+              OriginSSLProtocols:
+                - TLSv1.2
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+
+Outputs:
+  FunctionName:
+    Value: !Ref Function
+  FunctionUrl:
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionDomainName:
+    Value: !GetAtt Distribution.DomainName
+  CustomDomainUrl:
+    Value: !Sub "https://${DomainName}"
+  ExecutionRoleArn:
+    Value: !GetAtt LambdaExecutionRole.Arn

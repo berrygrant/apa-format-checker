@@ -18,6 +18,12 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV AWS_LWA_PORT=3001
+ENV AWS_LWA_READINESS_CHECK_PATH=/api/health
+ENV AWS_LWA_INVOKE_MODE=response_stream
+ENV AWS_LWA_ENABLE_COMPRESSION=false
+
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 
 COPY package.json package-lock.json ./
 COPY client/package.json client/package.json

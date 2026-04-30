@@ -86,22 +86,36 @@ app.get("/api/metrics/requests", requireAppAuth, (_req, res) => {
   res.json(getRequestMetricsSnapshot());
 });
 
-app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req, res) => {
+function logReviewRequest(job, file, requestMetrics) {
+  const sourceExtension = extname(file.originalname ?? "").toLowerCase() || "unknown";
+
+  console.log(
+    JSON.stringify({
+      event: "review_request",
+      jobId: job.id,
+      reviewMode: job.reviewMode,
+      sourceFormat: sourceExtension,
+      sizeBytes: file.size,
+      requestsToday: requestMetrics.today,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
+
+function createReviewJobFromRequest(req) {
   const fileError = validateUploadFile(req.file);
   const reviewMode = normalizeReviewMode(req.body?.reviewMode);
 
   if (fileError) {
-    res.status(400).json({
+    return {
       error: fileError,
-    });
-    return;
+    };
   }
 
   if (!reviewMode) {
-    res.status(400).json({
+    return {
       error: "Invalid review mode.",
-    });
-    return;
+    };
   }
 
   const job = createJob({
@@ -114,20 +128,26 @@ app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req,
     reviewMode,
   });
   const requestMetrics = recordReviewRequest();
-  const sourceExtension = extname(req.file.originalname ?? "").toLowerCase() || "unknown";
 
-  console.log(
-    JSON.stringify({
-      event: "review_request",
-      jobId: job.id,
-      reviewMode: job.reviewMode,
-      sourceFormat: sourceExtension,
-      sizeBytes: req.file.size,
-      requestsToday: requestMetrics.today,
-      timestamp: new Date().toISOString(),
-    }),
-  );
+  logReviewRequest(job, req.file, requestMetrics);
 
+  return {
+    job,
+    requestMetrics,
+  };
+}
+
+app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req, res) => {
+  const reviewRequest = createReviewJobFromRequest(req);
+
+  if (reviewRequest.error) {
+    res.status(400).json({
+      error: reviewRequest.error,
+    });
+    return;
+  }
+
+  const { job, requestMetrics } = reviewRequest;
   res.status(202).json({
     jobId: job.id,
     reviewMode: job.reviewMode,
@@ -135,6 +155,43 @@ app.post("/api/review", requireAppAuth, apiLimiter, upload.single("file"), (req,
   });
 
   void processReviewJob(job, req.file.buffer);
+});
+
+app.post("/api/review/stream", requireAppAuth, apiLimiter, upload.single("file"), async (req, res) => {
+  const reviewRequest = createReviewJobFromRequest(req);
+
+  if (reviewRequest.error) {
+    res.status(400).json({
+      error: reviewRequest.error,
+    });
+    return;
+  }
+
+  const { job } = reviewRequest;
+  initializeSse(res);
+  sendSseEvent(res, {
+    id: `snapshot-${job.id}`,
+    type: "snapshot",
+    payload: serializeJob(job),
+  });
+
+  const stopHeartbeat = startHeartbeat(res);
+  const unsubscribe = subscribeToJob(job, (event) => {
+    if (!res.destroyed && !res.writableEnded) {
+      sendSseEvent(res, event);
+    }
+  });
+
+  try {
+    await processReviewJob(job, req.file.buffer);
+  } finally {
+    unsubscribe();
+    stopHeartbeat();
+
+    if (!res.destroyed && !res.writableEnded) {
+      res.end();
+    }
+  }
 });
 
 app.get("/api/review/stream/:jobId", requireAppAuth, (req, res) => {

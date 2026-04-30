@@ -5,11 +5,10 @@ import SectionCard from "./components/SectionCard.jsx";
 import ReportSummary from "./components/ReportSummary.jsx";
 import {
   UnauthorizedError,
-  createReviewJob,
   getAuthSession,
   loginWithPassword,
   logoutSession,
-  openReviewStream,
+  runReviewStream,
 } from "./lib/api.js";
 import { MAX_DOCX_BYTES, REVIEW_MODES, REVIEW_STAGES, SECTION_SLOTS } from "./lib/constants.js";
 
@@ -42,7 +41,7 @@ function fileValidationError(file) {
 }
 
 export default function App() {
-  const eventSourceRef = useRef(null);
+  const abortControllerRef = useRef(null);
   const terminalEventRef = useRef(false);
 
   const [selectedFile, setSelectedFile] = useState(null);
@@ -98,13 +97,13 @@ export default function App() {
 
     return () => {
       isMounted = false;
-      eventSourceRef.current?.close();
+      abortControllerRef.current?.abort();
     };
   }, []);
 
   function closeStream() {
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
   }
 
   function resetStreamState() {
@@ -155,82 +154,77 @@ export default function App() {
     }
   }
 
-  function connectToStream(nextJobId) {
+  async function streamReview(fileToReview, controller) {
     closeStream();
+    abortControllerRef.current = controller;
 
-    const source = openReviewStream(nextJobId, {
-      onSnapshot: (snapshot) => {
-        startTransition(() => {
-          applySnapshot(snapshot);
-        });
-      },
-      onStatus: (payload) => {
-        startTransition(() => {
-          setJobStatus(payload.stage === "completed" ? "completed" : "processing");
-          setStreamState((previous) => ({
-            ...previous,
-            currentStage: payload.stage,
-            progress: Number.isFinite(payload.progress) ? payload.progress : previous.progress,
-            statusHistory: [...previous.statusHistory, payload].slice(-20),
-          }));
-        });
-      },
-      onSection: ({ section }) => {
-        startTransition(() => {
-          setStreamState((previous) => ({
-            ...previous,
-            sections: {
-              ...previous.sections,
-              [section.id]: section,
-            },
-          }));
-        });
-      },
-      onLlmDelta: ({ llmPreview }) => {
-        startTransition(() => {
-          setStreamState((previous) => ({
-            ...previous,
-            llmPreview,
-          }));
-        });
-      },
-      onComplete: ({ report }) => {
-        terminalEventRef.current = true;
-        startTransition(() => {
-          setJobStatus("completed");
-          setStreamState((previous) => ({
-            ...previous,
-            currentStage: "completed",
-            report,
-          }));
-        });
-        closeStream();
-      },
-      onErrorEvent: ({ error }) => {
-        terminalEventRef.current = true;
-        startTransition(() => {
-          setJobStatus("failed");
-          setAppError(error?.message || "Review failed.");
-          setStreamState((previous) => ({
-            ...previous,
-            currentStage: "failed",
-            error: error?.message || "Review failed.",
-          }));
-        });
-        closeStream();
-      },
-      onConnectionError: (readyState) => {
-        if (terminalEventRef.current || readyState !== 2) {
-          return;
-        }
-
-        startTransition(() => {
-          setAppError("The SSE connection closed before the review finished.");
-        });
-      },
-    });
-
-    eventSourceRef.current = source;
+    try {
+      await runReviewStream(fileToReview, reviewMode, {
+        onSnapshot: (snapshot) => {
+          startTransition(() => {
+            setJobId(snapshot.jobId || "");
+            applySnapshot(snapshot);
+          });
+        },
+        onStatus: (payload) => {
+          startTransition(() => {
+            setJobStatus(payload.stage === "completed" ? "completed" : "processing");
+            setStreamState((previous) => ({
+              ...previous,
+              currentStage: payload.stage,
+              progress: Number.isFinite(payload.progress) ? payload.progress : previous.progress,
+              statusHistory: [...previous.statusHistory, payload].slice(-20),
+            }));
+          });
+        },
+        onSection: ({ section }) => {
+          startTransition(() => {
+            setStreamState((previous) => ({
+              ...previous,
+              sections: {
+                ...previous.sections,
+                [section.id]: section,
+              },
+            }));
+          });
+        },
+        onLlmDelta: ({ llmPreview }) => {
+          startTransition(() => {
+            setStreamState((previous) => ({
+              ...previous,
+              llmPreview,
+            }));
+          });
+        },
+        onComplete: ({ report }) => {
+          terminalEventRef.current = true;
+          startTransition(() => {
+            setJobStatus("completed");
+            setStreamState((previous) => ({
+              ...previous,
+              currentStage: "completed",
+              report,
+            }));
+          });
+        },
+        onErrorEvent: ({ error }) => {
+          terminalEventRef.current = true;
+          startTransition(() => {
+            setJobStatus("failed");
+            setAppError(error?.message || "Review failed.");
+            setStreamState((previous) => ({
+              ...previous,
+              currentStage: "failed",
+              error: error?.message || "Review failed.",
+            }));
+          });
+        },
+      }, { signal: controller.signal });
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
+    }
   }
 
   async function handleRun() {
@@ -253,10 +247,17 @@ export default function App() {
     });
 
     try {
-      const payload = await createReviewJob(fileToReview, reviewMode);
-      setJobId(payload.jobId);
-      connectToStream(payload.jobId);
+      const controller = new AbortController();
+      await streamReview(fileToReview, controller);
+
+      if (!terminalEventRef.current) {
+        setAppError("The review stream closed before the review finished.");
+      }
     } catch (error) {
+      if (error.name === "AbortError") {
+        return;
+      }
+
       if (error instanceof UnauthorizedError) {
         setAuthState((previous) => ({
           ...previous,

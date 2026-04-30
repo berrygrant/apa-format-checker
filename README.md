@@ -60,7 +60,22 @@ Accepts multipart form data with a `file` field.
 - Max size defaults to 3 MB
 - Returns `202` with a `jobId`
 
+### `POST /api/review/stream`
+
+Accepts the same multipart form data and returns a streamed `text/event-stream` response. This is the production Lambda-compatible review endpoint.
+
+Emits:
+
+- `snapshot`
+- `status`
+- `section`
+- `llm_delta`
+- `complete`
+- `review_error`
+
 ### `GET /api/review/stream/:jobId`
+
+Legacy local endpoint for jobs created through `POST /api/review`.
 
 Server-Sent Events endpoint that emits:
 
@@ -92,4 +107,4 @@ Server-Sent Events endpoint that emits:
 
 ## AWS Deployment
 
-This repo now includes a container build, an ECS deployment workflow, and AWS IAM/task templates for ECS Fargate. See [`docs/aws-ecs-fargate.md`](docs/aws-ecs-fargate.md) before deploying.
+This repo includes a Lambda container build, a Lambda deployment workflow, and AWS IAM/CloudFormation templates. See [`docs/aws-lambda.md`](docs/aws-lambda.md) before deploying.
