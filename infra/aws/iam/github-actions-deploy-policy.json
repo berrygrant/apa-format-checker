@@ -21,6 +21,7 @@
       "Action": [
         "cloudformation:CreateChangeSet",
         "cloudformation:CreateStack",
+        "cloudformation:ContinueUpdateRollback",
         "cloudformation:DescribeChangeSet",
         "cloudformation:DescribeStackEvents",
         "cloudformation:DescribeStacks",
