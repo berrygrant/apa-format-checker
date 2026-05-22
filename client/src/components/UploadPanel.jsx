@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { SUPPORTED_FILE_LABEL } from "../lib/constants.js";
 import { formatBytes } from "../lib/formatters.js";
 
 export default function UploadPanel({
@@ -72,7 +73,7 @@ export default function UploadPanel({
             }
           }}
         />
-        <span className="dropzone-badge">DOCX or PDF</span>
+        <span className="dropzone-badge">{SUPPORTED_FILE_LABEL}</span>
         <strong>{file ? file.name : "Drop a thesis document here"}</strong>
         <span>{file ? formatBytes(file.size) : "Maximum file size: 3 MB"}</span>
       </label>
