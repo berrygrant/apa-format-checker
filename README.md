@@ -10,6 +10,9 @@ Monorepo for a hybrid APA 7 thesis review application with:
 - OpenAI structured-output review
 - Server-Sent Events for progressive streaming updates
 
+Current version: v0.10.0 | [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20346509.svg)](https://doi.org/10.5281/zenodo.20346509)
+
+
 ## Workspace Layout
 
 - `client/` React streaming UI
