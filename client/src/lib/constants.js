@@ -1,4 +1,6 @@
-export const MAX_DOCX_BYTES = 3 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+export const SUPPORTED_EXTENSIONS = [".docx", ".pdf"];
+export const SUPPORTED_FILE_LABEL = "DOCX or PDF";
 
 export const REVIEW_MODES = [
   {

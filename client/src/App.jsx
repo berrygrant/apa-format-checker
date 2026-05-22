@@ -10,7 +10,7 @@ import {
   logoutSession,
   runReviewStream,
 } from "./lib/api.js";
-import { MAX_DOCX_BYTES, REVIEW_MODES, REVIEW_STAGES, SECTION_SLOTS } from "./lib/constants.js";
+import { MAX_UPLOAD_BYTES, REVIEW_MODES, REVIEW_STAGES, SECTION_SLOTS, SUPPORTED_EXTENSIONS } from "./lib/constants.js";
 
 const EMPTY_STREAM_STATE = {
   currentStage: "idle",
@@ -29,11 +29,11 @@ function fileValidationError(file) {
 
   const filename = file.name.toLowerCase();
 
-  if (!filename.endsWith(".docx") && !filename.endsWith(".pdf")) {
+  if (!SUPPORTED_EXTENSIONS.some((extension) => filename.endsWith(extension))) {
     return "Only .docx and .pdf uploads are supported.";
   }
 
-  if (file.size > MAX_DOCX_BYTES) {
+  if (file.size > MAX_UPLOAD_BYTES) {
     return "The file exceeds the 3 MB limit.";
   }
 

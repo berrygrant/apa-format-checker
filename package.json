@@ -1,7 +1,7 @@
 {
   "name": "thesis-apa-formatter",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "workspaces": [
     "client",
     "server"
@@ -11,6 +11,7 @@
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
     "build": "npm --workspace client run build",
+    "check": "npm run build && node --check server/src/index.js && node --check server/src/lib/*.js && node --check server/src/prompts/*.js",
     "start": "npm --workspace server run start",
     "smoke:review": "node scripts/smoke-review-stream.mjs"
   },

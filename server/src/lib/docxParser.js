@@ -1,5 +1,3 @@
-import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 import { DEFAULT_REVIEW_MODE, getReviewModeConfig } from "./reviewMode.js";
 
 function normalizeText(input) {
@@ -205,6 +203,7 @@ function extractReferenceEntryRecords(rawLines, referencesHeadingIndex) {
 }
 
 async function extractDocxRawText(buffer) {
+  const { default: mammoth } = await import("mammoth");
   const result = await mammoth.extractRawText({ buffer });
 
   return {
@@ -216,6 +215,7 @@ async function extractDocxRawText(buffer) {
 }
 
 async function extractPdfRawText(buffer) {
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
 
   try {
