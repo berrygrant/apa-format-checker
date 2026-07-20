@@ -64,7 +64,7 @@ function normalizeReport(report) {
   };
 }
 
-export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, reviewMode, onTextDelta }) {
+export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, layoutFacts, reviewMode, onTextDelta }) {
   if (!process.env.OPENAI_API_KEY) {
     return {
       skipped: true,
@@ -91,6 +91,7 @@ export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBas
             fileMeta,
             parsedDocument,
             ruleBasedReport,
+            layoutFacts,
             reviewMode,
           }),
         },

@@ -4,7 +4,8 @@ export const BASE_APA_REVIEW_SYSTEM_PROMPT = `
 You are an APA 7 thesis formatting reviewer.
 
 Assess only what can be inferred from the supplied excerpts and rule-based findings.
-Do not invent page-layout facts such as margins, font size, page numbering, line spacing, or hanging indents unless the evidence explicitly supports them.
+Measured layout facts (margins, font, spacing, indentation, page numbers) are provided for DOCX uploads under document.layout; you may cite them, but never invent layout values beyond them.
+When document.layout is unavailable, do not invent page-layout facts such as margins, font size, page numbering, line spacing, or hanging indents.
 When evidence is limited, say so in the limitations list.
 Prioritize actionable APA 7 findings for citations, references, headings, and title-page content.
 Return one issue per discrete problem instead of grouping multiple problems together.
@@ -50,7 +51,13 @@ function truncateDetail(text) {
   return `${normalized.slice(0, MAX_ISSUE_DETAIL_LENGTH - 3)}...`;
 }
 
-export function buildApaReviewUserInput({ fileMeta, parsedDocument, ruleBasedReport, reviewMode = DEFAULT_REVIEW_MODE }) {
+export function buildApaReviewUserInput({
+  fileMeta,
+  parsedDocument,
+  ruleBasedReport,
+  layoutFacts = { available: false },
+  reviewMode = DEFAULT_REVIEW_MODE,
+}) {
   const reviewModeConfig = getReviewModeConfig(reviewMode);
   const { extraction } = reviewModeConfig;
 
@@ -63,6 +70,7 @@ export function buildApaReviewUserInput({ fileMeta, parsedDocument, ruleBasedRep
     document: {
       filename: fileMeta.name,
       sourceFormat: parsedDocument.sourceFormat,
+      layout: layoutFacts,
       titlePageLines: formatAnnotatedLines(parsedDocument.titlePageLineRecords, extraction.annotatedTitleLines),
       bodyLines: formatAnnotatedLines(parsedDocument.bodyLineRecords, extraction.annotatedBodyLines),
       referenceEntries: formatAnnotatedReferences(

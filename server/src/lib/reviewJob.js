@@ -1,4 +1,6 @@
 import { parseDocumentBuffer, summarizeParsedDocument } from "./docxParser.js";
+import { extractDocxLayout } from "./docxLayout.js";
+import { analyzeLayout, analyzeLayoutFailure, analyzePdfLayoutPlaceholder } from "./layoutChecks.js";
 import {
   analyzeBody,
   analyzeCitations,
@@ -132,13 +134,37 @@ export async function processReviewJob(job, buffer) {
     const parsedSummary = summarizeParsedDocument(parsedDocument);
     upsertJobSection(job, createParserSection(parsedSummary));
 
+    const isDocx = parsedDocument.sourceFormat === "docx";
+    setJobStage(
+      job,
+      "analyzing_layout",
+      isDocx ? "Measuring margins, font, spacing, and page numbers..." : "Layout checks are limited for PDF uploads.",
+      18,
+    );
+
+    let layoutPart;
+
+    if (isDocx) {
+      try {
+        const layoutFacts = await extractDocxLayout(buffer);
+        layoutPart = analyzeLayout(layoutFacts, { referencesLocated: !parsedDocument.referencesMissing });
+      } catch (error) {
+        layoutPart = analyzeLayoutFailure(error);
+      }
+    } else {
+      layoutPart = analyzePdfLayoutPlaceholder();
+    }
+
+    upsertJobSection(job, layoutPart.section);
+    await yieldToEventLoop();
+
     setJobStage(job, "running_rule_checks", "Running rule-based checks...", 30);
     const citationData = extractCitationData(parsedDocument.bodyLineRecords);
     await yieldToEventLoop();
     const referenceData = extractReferenceData(parsedDocument);
     await yieldToEventLoop();
 
-    const parts = [];
+    const parts = [{ section: layoutPart.section, itemIssues: layoutPart.itemIssues }];
     for (const analyze of [analyzeDocumentStructure, analyzeTitlePage, analyzeBody]) {
       const part = analyze(parsedDocument);
       parts.push(part);
@@ -176,6 +202,7 @@ export async function processReviewJob(job, buffer) {
       fileMeta: job.fileMeta,
       parsedDocument,
       ruleBasedReport,
+      layoutFacts: layoutPart.promptFacts,
       reviewMode: job.reviewMode,
       onTextDelta: (delta) => appendLlmPreview(job, delta),
     });
@@ -187,6 +214,7 @@ export async function processReviewJob(job, buffer) {
       job,
       parsedDocument,
       ruleBasedReport,
+      layoutFacts: layoutPart.promptFacts,
       llmReview,
     });
 

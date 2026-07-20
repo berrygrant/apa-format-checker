@@ -141,7 +141,7 @@ function buildLlmItems(llmReview) {
   );
 }
 
-export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmReview }) {
+export function buildFinalReport({ job, parsedDocument, ruleBasedReport, layoutFacts = { available: false }, llmReview }) {
   const reviewModeConfig = getReviewModeConfig(job.reviewMode);
   const llmStatus = llmReview.report?.overallStatus ?? null;
   const overallStatus = combineStatus(ruleBasedReport.summary.overallStatus, llmStatus);
@@ -160,7 +160,7 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmRevi
   ]);
 
   return {
-    version: "3.0.0",
+    version: "3.1.0",
     jobId: job.id,
     generatedAt: new Date().toISOString(),
     review: {
@@ -183,6 +183,7 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmRevi
       },
       metrics: parsedDocument.metrics,
       parserMessages: parsedDocument.parserMessages,
+      layout: layoutFacts,
     },
     summary: {
       overallStatus,

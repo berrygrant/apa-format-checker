@@ -1,9 +1,10 @@
 import { STATUS_RANK, computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
 
-const SECTION_ORDER = ["document", "titlePage", "body", "citations", "references"];
+const SECTION_ORDER = ["document", "layout", "titlePage", "body", "citations", "references"];
 
 const SECTION_LABELS = {
   document: "Document",
+  layout: "Layout",
   titlePage: "Title Page",
   body: "Body",
   citations: "Citations",
@@ -127,9 +128,9 @@ function buildReviewLimitations(parsedDocument) {
   }
 
   return [
-    "Margins, font, line spacing, page numbers, and exact Word layout are not directly verifiable from Mammoth raw-text extraction.",
+    "Margins, default font, line spacing, indentation, and page-number fields are measured from the DOCX file's stored settings; direct formatting applied to individual runs or sections may deviate from the detected defaults.",
     "Issue locations are best-effort line and entry references derived from extracted text, not native Word page coordinates.",
-    "Hanging indents and exact heading levels should be confirmed in Word even when the text checks pass.",
+    "Tab-key indents, manually formatted headings, and per-page layout (widows, placement) are not detectable from stored paragraph settings.",
   ];
 }
 
@@ -270,7 +271,7 @@ function buildLocationLabel({ sectionId, lineStart, lineEnd, paragraphNumber, en
   return sectionLabel;
 }
 
-function makeLocation({
+export function makeLocation({
   sectionId,
   lineStart = null,
   lineEnd = null,
@@ -354,7 +355,7 @@ function buildSectionLocation(sectionId, lineRecords, fallbackExcerpt = "", labe
   return buildLineRangeLocation(sectionId, startLineRecord, endLineRecord, fallbackExcerpt, labelOverride);
 }
 
-function makeFinding(status, title, detail, recommendation, evidence = null, location = null) {
+export function makeFinding(status, title, detail, recommendation, evidence = null, location = null) {
   return {
     id: slugify(`${title}-${detail}-${location?.label ?? ""}`),
     status,
@@ -366,7 +367,7 @@ function makeFinding(status, title, detail, recommendation, evidence = null, loc
   };
 }
 
-function makeItemIssue({
+export function makeItemIssue({
   sectionId,
   sectionLabel,
   status,
@@ -411,7 +412,7 @@ function statusFromFindings(findings) {
   }, "pass");
 }
 
-function buildSection(id, label, summary, findings, metrics = {}) {
+export function buildSection(id, label, summary, findings, metrics = {}) {
   return {
     id,
     label,

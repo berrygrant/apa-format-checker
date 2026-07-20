@@ -9,9 +9,11 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.8.10",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.80.1",

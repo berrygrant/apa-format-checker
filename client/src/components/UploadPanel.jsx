@@ -93,8 +93,9 @@ export default memo(function UploadPanel({
       </p>
 
       <p className="limitations-note">
-        This tool cannot directly validate margins, font size, line spacing, page numbers, or other native page-layout
-        settings. Confirm those manually in the original document.
+        Layout settings (margins, font, line spacing, indentation, page numbers) are measured from the stored settings
+        of DOCX uploads. They cannot be verified from PDFs, and per-page details like widows or exact placement still
+        need a manual check.
       </p>
 
       {jobId ? (
