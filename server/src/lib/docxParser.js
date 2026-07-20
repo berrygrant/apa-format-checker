@@ -1,5 +1,23 @@
 import { DEFAULT_REVIEW_MODE, getReviewModeConfig } from "./reviewMode.js";
 
+export const REFERENCES_HEADING_REGEX = /^\s*(references|reference list|bibliography|works cited)\s*:?\s*$/i;
+
+// The LAST plausible heading wins so a table-of-contents entry near the top of
+// the document cannot hijack the main/references split.
+export function findReferencesHeading(rawLines) {
+  let result = { index: -1, label: null };
+
+  rawLines.forEach((line, index) => {
+    const match = line.trim().match(REFERENCES_HEADING_REGEX);
+
+    if (match) {
+      result = { index, label: match[1] };
+    }
+  });
+
+  return result;
+}
+
 function normalizeText(input) {
   return input
     .replace(/\u00a0/g, " ")
@@ -264,7 +282,7 @@ export function buildParsedDocument(rawExtraction, options = {}) {
     reviewModeConfig.extraction;
   const normalizedText = normalizeText(rawExtraction.rawText ?? "");
   const rawLines = normalizedText ? normalizedText.split("\n") : [];
-  const referencesHeadingIndex = rawLines.findIndex((line) => /^references\s*$/i.test(line.trim()));
+  const { index: referencesHeadingIndex, label: referencesHeadingLabel } = findReferencesHeading(rawLines);
   const lineRecords = buildLineRecords(rawLines, referencesHeadingIndex);
   const segmentRecords = buildSegmentRecords(rawLines, referencesHeadingIndex);
   const mainLineRecords = lineRecords.filter((lineRecord) => lineRecord.zone === "main");
@@ -309,6 +327,7 @@ export function buildParsedDocument(rawExtraction, options = {}) {
     preReferencesText,
     referencesText,
     referencesHeadingLineNumber: referencesHeadingIndex === -1 ? null : referencesHeadingIndex + 1,
+    referencesHeadingLabel,
     referencesMissing: referencesHeadingIndex === -1 || referenceEntryRecords.length === 0,
     referenceEntries: referenceEntryRecords.map((entryRecord) => entryRecord.text),
     referenceEntryRecords,
