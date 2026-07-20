@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,23 +47,32 @@ function loadMetrics() {
   }
 }
 
-function persistMetrics(state) {
-  mkdirSync(dataDirectory, { recursive: true });
+async function writeMetricsSnapshot(snapshot) {
+  await mkdir(dataDirectory, { recursive: true });
   const temporaryFile = `${metricsFile}.tmp`;
 
-  writeFileSync(
-    temporaryFile,
-    JSON.stringify(
-      {
-        total: state.total,
-        byDay: state.byDay,
-        updatedAt: state.updatedAt,
-      },
-      null,
-      2,
-    ),
-  );
-  renameSync(temporaryFile, metricsFile);
+  await writeFile(temporaryFile, JSON.stringify(snapshot, null, 2));
+  await rename(temporaryFile, metricsFile);
+}
+
+// Serialized so overlapping requests never interleave tmp-file writes; the hot
+// path only enqueues and returns.
+let persistChain = Promise.resolve();
+
+function schedulePersist(state) {
+  const snapshot = {
+    total: state.total,
+    byDay: { ...state.byDay },
+    updatedAt: state.updatedAt,
+  };
+
+  persistChain = persistChain
+    .then(() => writeMetricsSnapshot(snapshot))
+    .catch((error) => {
+      console.warn(`Failed to persist request metrics: ${error instanceof Error ? error.message : error}`);
+    });
+
+  return persistChain;
 }
 
 function sortDaysDescending(left, right) {
@@ -85,9 +95,13 @@ export function recordReviewRequest() {
   metricsState.total += 1;
   metricsState.byDay[day] = (metricsState.byDay[day] ?? 0) + 1;
   metricsState.updatedAt = new Date().toISOString();
-  persistMetrics(metricsState);
+  schedulePersist(metricsState);
 
   return getRequestMetricsSnapshot();
+}
+
+export function flushRequestMetrics() {
+  return persistChain;
 }
 
 export function getRequestMetricsSnapshot(limit = 30) {

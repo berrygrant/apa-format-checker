@@ -1,8 +1,10 @@
-import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import UploadPanel from "./components/UploadPanel.jsx";
 import StatusTimeline from "./components/StatusTimeline.jsx";
 import SectionCard from "./components/SectionCard.jsx";
 import ReportSummary from "./components/ReportSummary.jsx";
+import LlmActivityIndicator from "./components/LlmActivityIndicator.jsx";
+import IssueInventoryPanel from "./components/IssueInventoryPanel.jsx";
 import {
   UnauthorizedError,
   getAuthSession,
@@ -18,7 +20,7 @@ const EMPTY_STREAM_STATE = {
   statusHistory: [],
   sections: {},
   report: null,
-  llmPreview: "",
+  llmPreviewLength: 0,
   error: "",
 };
 
@@ -101,21 +103,21 @@ export default function App() {
     };
   }, []);
 
-  function closeStream() {
+  const closeStream = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-  }
+  }, []);
 
-  function resetStreamState() {
+  const resetStreamState = useCallback(() => {
     terminalEventRef.current = false;
     closeStream();
     setStreamState(EMPTY_STREAM_STATE);
     setAppError("");
     setJobStatus("idle");
     setJobId("");
-  }
+  }, [closeStream]);
 
-  function handleFilePicked(file) {
+  const handleFilePicked = useCallback((file) => {
     const validationError = fileValidationError(file);
 
     if (validationError) {
@@ -127,7 +129,7 @@ export default function App() {
     setSelectedFile(file);
     setFileError("");
     setAppError("");
-  }
+  }, []);
 
   function applySnapshot(snapshot) {
     setJobStatus(snapshot.status);
@@ -145,7 +147,7 @@ export default function App() {
         .map((event) => event.payload),
       sections: Object.fromEntries((snapshot.sections || []).map((section) => [section.id, section])),
       report: snapshot.report || null,
-      llmPreview: snapshot.llmPreview || "",
+      llmPreviewLength: snapshot.llmPreview?.length ?? 0,
       error: snapshot.error?.message || "",
     });
 
@@ -154,7 +156,7 @@ export default function App() {
     }
   }
 
-  async function streamReview(fileToReview, controller) {
+  const streamReview = useCallback(async (fileToReview, controller) => {
     closeStream();
     abortControllerRef.current = controller;
 
@@ -188,11 +190,13 @@ export default function App() {
             }));
           });
         },
-        onLlmDelta: ({ llmPreview }) => {
+        onLlmDelta: ({ delta, previewLength }) => {
           startTransition(() => {
             setStreamState((previous) => ({
               ...previous,
-              llmPreview,
+              llmPreviewLength: Number.isFinite(previewLength)
+                ? previewLength
+                : previous.llmPreviewLength + (delta?.length ?? 0),
             }));
           });
         },
@@ -225,9 +229,9 @@ export default function App() {
         abortControllerRef.current = null;
       }
     }
-  }
+  }, [closeStream, reviewMode]);
 
-  async function handleRun() {
+  const handleRun = useCallback(async () => {
     const fileToReview = selectedFile;
     const validationError = fileValidationError(fileToReview);
 
@@ -275,7 +279,7 @@ export default function App() {
     } finally {
       setIsSubmitting(false);
     }
-  }
+  }, [resetStreamState, selectedFile, streamReview]);
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -326,7 +330,8 @@ export default function App() {
     }));
   }
 
-  const isGateVisible = authState.loading || (authState.enabled && !authState.authenticated);
+  const isGateVisible = !authState.loading && authState.enabled && !authState.authenticated;
+  const isIdle = jobStatus === "idle" && !streamState.report && streamState.statusHistory.length === 0;
 
   return (
     <div className="app-shell">
@@ -355,7 +360,14 @@ export default function App() {
         </div>
       </header>
 
-      {isGateVisible ? (
+      {authState.loading ? (
+        <main className="auth-workspace">
+          <section aria-busy="true" className="panel auth-panel">
+            <div className="eyebrow">Thesis APA Formatter</div>
+            <p className="auth-message">Loading the review workspace...</p>
+          </section>
+        </main>
+      ) : isGateVisible ? (
         <main className="auth-workspace">
           <section className="panel auth-panel">
             <div className="eyebrow">Protected Access</div>
@@ -365,33 +377,33 @@ export default function App() {
               review results use the same server-side session.
             </p>
 
-            {authState.loading ? (
-              <p className="auth-message">Checking access...</p>
-            ) : (
-              <form className="auth-form" onSubmit={handleLogin}>
-                <label className="auth-field">
-                  <span>Password</span>
-                  <input
-                    autoComplete="current-password"
-                    onChange={(event) =>
-                      setAuthState((previous) => ({
-                        ...previous,
-                        password: event.target.value,
-                        error: "",
-                      }))
-                    }
-                    type="password"
-                    value={authState.password}
-                  />
-                </label>
+            <form className="auth-form" onSubmit={handleLogin}>
+              <label className="auth-field">
+                <span>Password</span>
+                <input
+                  autoComplete="current-password"
+                  onChange={(event) =>
+                    setAuthState((previous) => ({
+                      ...previous,
+                      password: event.target.value,
+                      error: "",
+                    }))
+                  }
+                  type="password"
+                  value={authState.password}
+                />
+              </label>
 
-                <button className="primary-button" disabled={authState.isSubmitting || !authState.password.trim()} type="submit">
-                  {authState.isSubmitting ? "Checking..." : "Unlock App"}
-                </button>
-              </form>
-            )}
+              <button className="primary-button" disabled={authState.isSubmitting || !authState.password.trim()} type="submit">
+                {authState.isSubmitting ? "Checking..." : "Unlock App"}
+              </button>
+            </form>
 
-            {authState.error ? <p className="app-error">{authState.error}</p> : null}
+            {authState.error ? (
+              <p className="app-error" role="alert">
+                {authState.error}
+              </p>
+            ) : null}
           </section>
         </main>
       ) : (
@@ -412,6 +424,7 @@ export default function App() {
             <StatusTimeline
               currentStage={streamState.currentStage}
               history={streamState.statusHistory}
+              idle={isIdle}
               progress={streamState.progress}
               stages={REVIEW_STAGES}
             />
@@ -424,23 +437,30 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="sections-grid">
-                {SECTION_SLOTS.map((slot) => (
-                  <SectionCard fallbackLabel={slot.label} key={slot.id} section={deferredSections[slot.id]} sectionId={slot.id} />
-                ))}
-              </div>
+              {isIdle ? (
+                <div className="sections-empty-state">
+                  <p>
+                    Once you run a review, each APA area — parsing, layout, title page, body, citations, references, and
+                    the AI pass — streams into its own card here.
+                  </p>
+                </div>
+              ) : (
+                <div className="sections-grid">
+                  {SECTION_SLOTS.map((slot) => (
+                    <SectionCard fallbackLabel={slot.label} key={slot.id} section={deferredSections[slot.id]} sectionId={slot.id} />
+                  ))}
+                </div>
+              )}
             </section>
 
-            {streamState.llmPreview ? (
-              <details className="panel llm-panel">
-                <summary>LLM stream preview</summary>
-                <pre>{streamState.llmPreview}</pre>
-              </details>
+            {streamState.currentStage === "llm_review" && streamState.llmPreviewLength > 0 ? (
+              <LlmActivityIndicator charactersReceived={streamState.llmPreviewLength} />
             ) : null}
 
             {deferredReport ? (
               <>
                 <ReportSummary report={deferredReport} />
+                <IssueInventoryPanel report={deferredReport} />
 
                 <details className="panel json-panel">
                   <summary>Raw APA compliance JSON</summary>
@@ -457,7 +477,11 @@ export default function App() {
               </section>
             )}
 
-            {appError ? <p className="app-error">{appError}</p> : null}
+            {appError ? (
+              <p className="app-error" role="alert">
+                {appError}
+              </p>
+            ) : null}
           </div>
         </main>
       )}

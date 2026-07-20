@@ -32,7 +32,7 @@ const sectionSchema = {
   properties: {
     sectionId: {
       type: "string",
-      enum: ["document", "titlePage", "body", "citations", "references", "overall"],
+      enum: ["document", "layout", "titlePage", "body", "citations", "references", "overall"],
     },
     label: {
       type: "string",

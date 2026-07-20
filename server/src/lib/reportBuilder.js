@@ -1,19 +1,8 @@
 import { getReviewModeConfig, getReviewModeLabel } from "./reviewMode.js";
+import { computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
-}
-
-function statusRank(status) {
-  if (status === "fail") {
-    return 2;
-  }
-
-  if (status === "warning") {
-    return 1;
-  }
-
-  return 0;
 }
 
 function combineStatus(ruleStatus, llmStatus) {
@@ -21,7 +10,7 @@ function combineStatus(ruleStatus, llmStatus) {
     return ruleStatus;
   }
 
-  return statusRank(llmStatus) > statusRank(ruleStatus) ? llmStatus : ruleStatus;
+  return worstStatus(ruleStatus, llmStatus);
 }
 
 function summarizeHybridHeadline(ruleBasedReport, llmReview, overallStatus) {
@@ -54,13 +43,81 @@ function buildPriorityActions(ruleBasedReport, llmReview) {
   return unique([...localActions, ...(llmReview.report?.priorityActions ?? [])]).slice(0, 8);
 }
 
-function buildIssueInventory(ruleBasedReport, llmReview) {
-  const ruleBasedItems = (ruleBasedReport.itemIssues ?? []).map((issue) => ({
+function titleTokens(title) {
+  return new Set(
+    String(title || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length > 2),
+  );
+}
+
+function titleSimilarity(leftTitle, rightTitle) {
+  const leftTokens = titleTokens(leftTitle);
+  const rightTokens = titleTokens(rightTitle);
+
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  let sharedCount = 0;
+
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      sharedCount += 1;
+    }
+  }
+
+  return sharedCount / (leftTokens.size + rightTokens.size - sharedCount);
+}
+
+function extractLineNumber(locationLabel) {
+  const match = String(locationLabel || "").match(/\b(?:L|lines?\s+)(\d+)/i);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function isDuplicateOfRuleItem(llmItem, ruleItem) {
+  if (llmItem.sectionId !== ruleItem.sectionId) {
+    return false;
+  }
+
+  const similarity = titleSimilarity(llmItem.title, ruleItem.title);
+
+  if (similarity >= 0.6) {
+    return true;
+  }
+
+  const llmLine = extractLineNumber(llmItem.location?.label);
+
+  return llmLine !== null && llmLine === ruleItem.location?.lineStart && similarity >= 0.25;
+}
+
+// Both stages often surface the same problem. Keep the rule-based item (it has
+// structured coordinates) and mark it as confirmed by the AI pass instead of
+// listing the problem twice.
+export function dedupeIssueInventory(ruleItems, llmItems) {
+  const inventory = ruleItems.map((issue) => ({
     ...issue,
     evidence: issue.location?.excerpt ?? null,
+    alsoFlaggedByLlm: false,
   }));
 
-  const llmItems = (llmReview.report?.sections ?? []).flatMap((section) =>
+  for (const llmItem of llmItems) {
+    const duplicateRuleItem = inventory.find((candidate) => candidate.source === "rule_based" && isDuplicateOfRuleItem(llmItem, candidate));
+
+    if (duplicateRuleItem) {
+      duplicateRuleItem.alsoFlaggedByLlm = true;
+      continue;
+    }
+
+    inventory.push(llmItem);
+  }
+
+  return inventory;
+}
+
+function buildLlmItems(llmReview) {
+  return (llmReview.report?.sections ?? []).flatMap((section) =>
     section.issues.map((issue) => ({
       source: "llm",
       sectionId: section.sectionId,
@@ -70,6 +127,7 @@ function buildIssueInventory(ruleBasedReport, llmReview) {
       detail: issue.detail,
       recommendation: issue.recommendation,
       evidence: issue.sourceExcerpt || null,
+      alsoFlaggedByLlm: false,
       location: {
         sectionId: section.sectionId,
         lineStart: null,
@@ -81,22 +139,19 @@ function buildIssueInventory(ruleBasedReport, llmReview) {
       },
     })),
   );
-
-  return [...ruleBasedItems, ...llmItems];
 }
 
-export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmReview }) {
+export function buildFinalReport({ job, parsedDocument, ruleBasedReport, layoutFacts = { available: false }, llmReview }) {
   const reviewModeConfig = getReviewModeConfig(job.reviewMode);
   const llmStatus = llmReview.report?.overallStatus ?? null;
   const overallStatus = combineStatus(ruleBasedReport.summary.overallStatus, llmStatus);
   const llmSummaryStatus = llmStatus ?? (llmReview.skipped ? "skipped" : llmReview.failed ? "failed" : null);
-  const overallScore =
-    typeof llmReview.report?.overallScore === "number"
-      ? Math.round((ruleBasedReport.summary.score + llmReview.report.overallScore) / 2)
-      : ruleBasedReport.summary.score;
 
   const priorityActions = buildPriorityActions(ruleBasedReport, llmReview);
-  const issueInventory = buildIssueInventory(ruleBasedReport, llmReview);
+  const llmItems = buildLlmItems(llmReview);
+  const issueInventory = dedupeIssueInventory(ruleBasedReport.itemIssues ?? [], llmItems);
+  const issueCounts = countByStatus(issueInventory.filter((issue) => issue.status !== "pass"));
+  const overallScore = computeWeightedScore(issueCounts);
   const limitations = unique([
     ...ruleBasedReport.limitations,
     ...(llmReview.report?.limitations ?? []),
@@ -105,7 +160,7 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmRevi
   ]);
 
   return {
-    version: "2.1.0",
+    version: "3.1.0",
     jobId: job.id,
     generatedAt: new Date().toISOString(),
     review: {
@@ -128,6 +183,7 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmRevi
       },
       metrics: parsedDocument.metrics,
       parserMessages: parsedDocument.parserMessages,
+      layout: layoutFacts,
     },
     summary: {
       overallStatus,
@@ -135,9 +191,19 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, llmRevi
       headline: summarizeHybridHeadline(ruleBasedReport, llmReview, overallStatus),
       ruleBasedStatus: ruleBasedReport.summary.overallStatus,
       llmStatus: llmSummaryStatus,
+      // "Checks passed" comes from the fixed per-section findings; the issue
+      // counts come from the deduplicated item inventory (rule + AI).
       passCount: ruleBasedReport.summary.passCount,
-      warningCount: ruleBasedReport.summary.warningCount,
-      failCount: ruleBasedReport.summary.failCount,
+      warningCount: issueCounts.warning,
+      failCount: issueCounts.fail,
+      infoCount: issueCounts.info,
+      aiAssessment: llmReview.report
+        ? {
+            overallScore: llmReview.report.overallScore,
+            overallStatus: llmReview.report.overallStatus,
+            confidence: llmReview.report.confidence,
+          }
+        : null,
     },
     ruleBased: ruleBasedReport,
     llm: {

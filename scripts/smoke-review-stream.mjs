@@ -46,22 +46,50 @@ function extractCookieHeader(response) {
 }
 
 async function createSmokeDocx() {
+  const doubleSpaced = { line: 480, lineRule: "auto" };
   const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: "Times New Roman", size: 24 },
+        },
+      },
+    },
     sections: [
       {
+        properties: {
+          page: {
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
         children: [
           new Paragraph({
+            alignment: "center",
+            spacing: doubleSpaced,
             children: [new TextRun({ text: "Effects of Automated APA Feedback on Revision Confidence", bold: true })],
           }),
-          new Paragraph("Grant Berry"),
-          new Paragraph("Villanova University"),
+          new Paragraph({ text: "Grant Berry", spacing: doubleSpaced }),
+          new Paragraph({ text: "Villanova University", spacing: doubleSpaced }),
           new Paragraph(""),
-          new Paragraph("Automated writing feedback can help students identify formatting concerns before submission."),
-          new Paragraph("Prior work suggests that formative feedback is most useful when it is specific and timely (Smith, 2022)."),
-          new Paragraph("This smoke document intentionally includes a compact body so the parser and rule checks finish quickly."),
+          new Paragraph({
+            text: "Automated writing feedback can help students identify formatting concerns before submission.",
+            spacing: doubleSpaced,
+          }),
+          new Paragraph({
+            text: "Prior work suggests that formative feedback is most useful when it is specific and timely (Smith, 2022).",
+            spacing: doubleSpaced,
+          }),
+          new Paragraph({
+            text: "This smoke document intentionally includes a compact body so the parser and rule checks finish quickly.",
+            spacing: doubleSpaced,
+          }),
           new Paragraph(""),
-          new Paragraph("References"),
-          new Paragraph("Smith, J. (2022). Writing feedback in psychology courses. Journal of Teaching Practice, 14(2), 22-31."),
+          new Paragraph({ text: "References", spacing: doubleSpaced }),
+          new Paragraph({
+            text: "Smith, J. (2022). Writing feedback in psychology courses. Journal of Teaching Practice, 14(2), 22-31.",
+            spacing: doubleSpaced,
+            indent: { hanging: 720 },
+          }),
         ],
       },
     ],
@@ -124,6 +152,16 @@ async function readReviewStream(body) {
       const payload = JSON.parse(event.data);
       events.push(event.type);
 
+      if (event.type === "llm_delta") {
+        if (typeof payload.delta !== "string" || !Number.isFinite(payload.previewLength)) {
+          throw new Error("llm_delta events must carry a string delta and numeric previewLength.");
+        }
+
+        if ("llmPreview" in payload) {
+          throw new Error("llm_delta events must not resend the accumulated llmPreview buffer.");
+        }
+      }
+
       if (event.type === "complete") {
         finalReport = payload.report;
       } else if (event.type === "review_error") {
@@ -142,6 +180,35 @@ async function readReviewStream(body) {
 
   if (!Number.isFinite(finalReport.summary?.overallScore) || !Array.isArray(finalReport.ruleBased?.sections)) {
     throw new Error("Final report did not match the expected smoke-test shape.");
+  }
+
+  if (!Array.isArray(finalReport.issueInventory)) {
+    throw new Error("Final report is missing the issueInventory array.");
+  }
+
+  const layoutSection = finalReport.ruleBased.sections.find((section) => section.id === "layout");
+
+  if (!layoutSection) {
+    throw new Error("The rule-based report is missing the layout section for a DOCX upload.");
+  }
+
+  if (finalReport.ruleBased.sections.length !== 6) {
+    throw new Error(`Expected 6 rule-based sections, saw ${finalReport.ruleBased.sections.length}.`);
+  }
+
+  const marginFinding = layoutSection.findings.find((finding) => finding.title.startsWith("Margins"));
+
+  if (!marginFinding || marginFinding.status !== "pass") {
+    throw new Error("The smoke DOCX declares 1-inch margins, but the layout margin check did not pass.");
+  }
+
+  const inventoryFailCount = finalReport.issueInventory.filter((issue) => issue.status === "fail").length;
+  const inventoryWarningCount = finalReport.issueInventory.filter((issue) => issue.status === "warning").length;
+
+  if (finalReport.summary.failCount !== inventoryFailCount || finalReport.summary.warningCount !== inventoryWarningCount) {
+    throw new Error(
+      `Headline counts must match the issue inventory (fail ${finalReport.summary.failCount}/${inventoryFailCount}, warning ${finalReport.summary.warningCount}/${inventoryWarningCount}).`,
+    );
   }
 
   return {

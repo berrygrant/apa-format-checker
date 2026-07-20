@@ -18,6 +18,7 @@ export const REVIEW_MODES = [
 export const REVIEW_STAGES = [
   { id: "queued", label: "Queued" },
   { id: "parsing_document", label: "Parsing document" },
+  { id: "analyzing_layout", label: "Layout checks" },
   { id: "running_rule_checks", label: "Rule-based checks" },
   { id: "evaluating_citations", label: "Evaluating citations" },
   { id: "evaluating_references", label: "Evaluating references" },
@@ -29,6 +30,7 @@ export const REVIEW_STAGES = [
 export const SECTION_SLOTS = [
   { id: "parser", label: "Parser" },
   { id: "document", label: "Document Structure" },
+  { id: "layout", label: "Layout" },
   { id: "titlePage", label: "Title Page" },
   { id: "body", label: "Body and Headings" },
   { id: "citations", label: "Citations" },

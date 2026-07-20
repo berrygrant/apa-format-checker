@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { downloadComplianceDocx, downloadComplianceMarkdown, getComplianceIssues } from "../lib/reportExports.js";
 import { formatBytes, humanizeStatus } from "../lib/formatters.js";
 
-export default function ReportSummary({ report }) {
+export default memo(function ReportSummary({ report }) {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [exportError, setExportError] = useState("");
   const complianceIssueCount = getComplianceIssues(report).length;
@@ -72,6 +72,13 @@ export default function ReportSummary({ report }) {
           <span>References missing</span>
           <strong>{report.document.referencesMissing ? "Yes" : "No"}</strong>
         </div>
+        {report.summary.aiAssessment ? (
+          <div className="summary-card">
+            <span>AI assessment</span>
+            <strong>{report.summary.aiAssessment.overallScore}/100</strong>
+            <span className="summary-card-note">{report.summary.aiAssessment.confidence} confidence</span>
+          </div>
+        ) : null}
       </div>
 
       <p className="report-headline">{report.summary.headline}</p>
@@ -126,4 +133,4 @@ export default function ReportSummary({ report }) {
       {exportError ? <p className="app-error">{exportError}</p> : null}
     </section>
   );
-}
+});

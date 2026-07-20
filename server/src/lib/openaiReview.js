@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import { APA_REVIEW_SCHEMA } from "./apaReportSchema.js";
-import { OPENAI_MODEL } from "./config.js";
+import { OPENAI_MAX_RETRIES, OPENAI_MODEL, OPENAI_TIMEOUT_MS } from "./config.js";
 import { buildApaReviewSystemPrompt, buildApaReviewUserInput } from "../prompts/apaReviewPrompt.js";
 
 let clientInstance = null;
@@ -10,6 +10,8 @@ function getClient() {
   if (!clientInstance) {
     clientInstance = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
+      timeout: OPENAI_TIMEOUT_MS,
+      maxRetries: OPENAI_MAX_RETRIES,
     });
   }
 
@@ -62,7 +64,7 @@ function normalizeReport(report) {
   };
 }
 
-export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, reviewMode, onTextDelta }) {
+export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, layoutFacts, reviewMode, onTextDelta }) {
   if (!process.env.OPENAI_API_KEY) {
     return {
       skipped: true,
@@ -89,6 +91,7 @@ export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBas
             fileMeta,
             parsedDocument,
             ruleBasedReport,
+            layoutFacts,
             reviewMode,
           }),
         },

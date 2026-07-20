@@ -104,6 +104,21 @@ Resources:
         Aliases:
           - !Ref DomainName
         Comment: !Sub "${FunctionName} Lambda Function URL distribution"
+        CacheBehaviors:
+          # Vite emits content-hashed files under /assets/, so they are safe to
+          # cache and compress at the edge. The default behavior below must stay
+          # CachingDisabled and uncompressed for the SSE review stream.
+          - PathPattern: /assets/*
+            AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            Compress: true
+            TargetOriginId: lambda-function-url
+            ViewerProtocolPolicy: redirect-to-https
         DefaultCacheBehavior:
           AllowedMethods:
             - DELETE

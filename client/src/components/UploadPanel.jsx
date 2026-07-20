@@ -1,8 +1,8 @@
-import { useId, useState } from "react";
+import { memo, useId, useState } from "react";
 import { SUPPORTED_FILE_LABEL } from "../lib/constants.js";
 import { formatBytes } from "../lib/formatters.js";
 
-export default function UploadPanel({
+export default memo(function UploadPanel({
   file,
   error,
   isBusy,
@@ -27,6 +27,21 @@ export default function UploadPanel({
     }
   }
 
+  function handleModeKeyDown(event, index) {
+    const isNext = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const isPrevious = event.key === "ArrowLeft" || event.key === "ArrowUp";
+
+    if (!isNext && !isPrevious) {
+      return;
+    }
+
+    event.preventDefault();
+    const offset = isNext ? 1 : -1;
+    const nextIndex = (index + offset + reviewModes.length) % reviewModes.length;
+    onReviewModeChange(reviewModes[nextIndex].id);
+    event.currentTarget.parentElement?.children[nextIndex]?.focus();
+  }
+
   return (
     <section className="panel upload-panel">
       <div className="eyebrow">Upload</div>
@@ -37,13 +52,16 @@ export default function UploadPanel({
       <div aria-label="Review mode" className="review-mode-field" role="radiogroup">
         <span className="review-mode-label">Review mode</span>
         <div className="review-mode-options">
-          {reviewModes.map((mode) => (
+          {reviewModes.map((mode, index) => (
             <button
-              aria-pressed={reviewMode === mode.id}
+              aria-checked={reviewMode === mode.id}
               className={`review-mode-button ${reviewMode === mode.id ? "is-selected" : ""}`}
               disabled={isBusy}
               key={mode.id}
               onClick={() => onReviewModeChange(mode.id)}
+              onKeyDown={(event) => handleModeKeyDown(event, index)}
+              role="radio"
+              tabIndex={reviewMode === mode.id ? 0 : -1}
               type="button"
             >
               {mode.label}
@@ -93,8 +111,9 @@ export default function UploadPanel({
       </p>
 
       <p className="limitations-note">
-        This tool cannot directly validate margins, font size, line spacing, page numbers, or other native page-layout
-        settings. Confirm those manually in the original document.
+        Layout settings (margins, font, line spacing, indentation, page numbers) are measured from the stored settings
+        of DOCX uploads. They cannot be verified from PDFs, and per-page details like widows or exact placement still
+        need a manual check.
       </p>
 
       {jobId ? (
@@ -104,7 +123,11 @@ export default function UploadPanel({
         </div>
       ) : null}
 
-      {error ? <p className="form-error">{error}</p> : null}
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
-}
+});

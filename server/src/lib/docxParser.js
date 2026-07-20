@@ -1,5 +1,23 @@
 import { DEFAULT_REVIEW_MODE, getReviewModeConfig } from "./reviewMode.js";
 
+export const REFERENCES_HEADING_REGEX = /^\s*(references|reference list|bibliography|works cited)\s*:?\s*$/i;
+
+// The LAST plausible heading wins so a table-of-contents entry near the top of
+// the document cannot hijack the main/references split.
+export function findReferencesHeading(rawLines) {
+  let result = { index: -1, label: null };
+
+  rawLines.forEach((line, index) => {
+    const match = line.trim().match(REFERENCES_HEADING_REGEX);
+
+    if (match) {
+      result = { index, label: match[1] };
+    }
+  });
+
+  return result;
+}
+
 function normalizeText(input) {
   return input
     .replace(/\u00a0/g, " ")
@@ -16,10 +34,6 @@ function tokenize(text) {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter(Boolean);
-}
-
-function takeWords(text, count) {
-  return tokenize(text).slice(0, count).join(" ");
 }
 
 function excerpt(text, wordCount) {
@@ -202,8 +216,37 @@ function extractReferenceEntryRecords(rawLines, referencesHeadingIndex) {
   return singleLineEntries;
 }
 
+let mammothModulePromise = null;
+let pdfParseModulePromise = null;
+
+function loadMammoth() {
+  mammothModulePromise ??= import("mammoth").catch((error) => {
+    mammothModulePromise = null;
+    throw error;
+  });
+
+  return mammothModulePromise;
+}
+
+function loadPdfParse() {
+  pdfParseModulePromise ??= import("pdf-parse").catch((error) => {
+    pdfParseModulePromise = null;
+    throw error;
+  });
+
+  return pdfParseModulePromise;
+}
+
+// Kicks both parser imports so a Lambda cold start absorbs the module-load
+// cost during init instead of the first user review. Failures reset the cache
+// so the next request retries lazily.
+export function warmParsers() {
+  loadMammoth().catch(() => {});
+  loadPdfParse().catch(() => {});
+}
+
 async function extractDocxRawText(buffer) {
-  const { default: mammoth } = await import("mammoth");
+  const { default: mammoth } = await loadMammoth();
   const result = await mammoth.extractRawText({ buffer });
 
   return {
@@ -215,7 +258,7 @@ async function extractDocxRawText(buffer) {
 }
 
 async function extractPdfRawText(buffer) {
-  const { PDFParse } = await import("pdf-parse");
+  const { PDFParse } = await loadPdfParse();
   const parser = new PDFParse({ data: buffer });
 
   try {
@@ -232,14 +275,14 @@ async function extractPdfRawText(buffer) {
   }
 }
 
-function buildParsedDocument(rawExtraction, options = {}) {
+export function buildParsedDocument(rawExtraction, options = {}) {
   const reviewMode = options.reviewMode ?? DEFAULT_REVIEW_MODE;
   const reviewModeConfig = getReviewModeConfig(reviewMode);
   const { titlePageWords, bodyWords, referencesWords, annotatedTitleLines, annotatedBodyLines, annotatedReferenceEntries } =
     reviewModeConfig.extraction;
   const normalizedText = normalizeText(rawExtraction.rawText ?? "");
   const rawLines = normalizedText ? normalizedText.split("\n") : [];
-  const referencesHeadingIndex = rawLines.findIndex((line) => /^references\s*$/i.test(line.trim()));
+  const { index: referencesHeadingIndex, label: referencesHeadingLabel } = findReferencesHeading(rawLines);
   const lineRecords = buildLineRecords(rawLines, referencesHeadingIndex);
   const segmentRecords = buildSegmentRecords(rawLines, referencesHeadingIndex);
   const mainLineRecords = lineRecords.filter((lineRecord) => lineRecord.zone === "main");
@@ -284,6 +327,7 @@ function buildParsedDocument(rawExtraction, options = {}) {
     preReferencesText,
     referencesText,
     referencesHeadingLineNumber: referencesHeadingIndex === -1 ? null : referencesHeadingIndex + 1,
+    referencesHeadingLabel,
     referencesMissing: referencesHeadingIndex === -1 || referenceEntryRecords.length === 0,
     referenceEntries: referenceEntryRecords.map((entryRecord) => entryRecord.text),
     referenceEntryRecords,
@@ -330,8 +374,4 @@ export function summarizeParsedDocument(parsedDocument) {
       references: excerpt(parsedDocument.referencesText, 50),
     },
   };
-}
-
-export function takeReferenceExcerpt(text, maxWords = 2500) {
-  return takeWords(text, maxWords);
 }

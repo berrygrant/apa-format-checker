@@ -1,8 +1,23 @@
 import { parseDocumentBuffer, summarizeParsedDocument } from "./docxParser.js";
-import { runRuleBasedReview } from "./ruleChecks.js";
+import { extractDocxLayout } from "./docxLayout.js";
+import { analyzeLayout, analyzeLayoutFailure, analyzePdfLayoutPlaceholder } from "./layoutChecks.js";
+import {
+  analyzeBody,
+  analyzeCitations,
+  analyzeDocumentStructure,
+  analyzeReferences,
+  analyzeTitlePage,
+  assembleRuleBasedReport,
+  extractCitationData,
+  extractReferenceData,
+} from "./ruleChecks.js";
 import { runOpenAiReview } from "./openaiReview.js";
 import { buildFinalReport } from "./reportBuilder.js";
 import { appendLlmPreview, completeJob, failJob, setJobStage, upsertJobSection } from "./jobStore.js";
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 function createParserSection(summary) {
   const sourceLabel = summary.sourceLabel || "document";
@@ -119,27 +134,57 @@ export async function processReviewJob(job, buffer) {
     const parsedSummary = summarizeParsedDocument(parsedDocument);
     upsertJobSection(job, createParserSection(parsedSummary));
 
-    setJobStage(job, "running_rule_checks", "Running rule-based checks...", 30);
-    const ruleBasedReport = runRuleBasedReview(parsedDocument);
+    const isDocx = parsedDocument.sourceFormat === "docx";
+    setJobStage(
+      job,
+      "analyzing_layout",
+      isDocx ? "Measuring margins, font, spacing, and page numbers..." : "Layout checks are limited for PDF uploads.",
+      18,
+    );
 
-    for (const sectionId of ["document", "titlePage", "body"]) {
-      const section = ruleBasedReport.sections.find((item) => item.id === sectionId);
-      if (section) {
-        upsertJobSection(job, section);
+    let layoutPart;
+
+    if (isDocx) {
+      try {
+        const layoutFacts = await extractDocxLayout(buffer);
+        layoutPart = analyzeLayout(layoutFacts, { referencesLocated: !parsedDocument.referencesMissing });
+      } catch (error) {
+        layoutPart = analyzeLayoutFailure(error);
       }
+    } else {
+      layoutPart = analyzePdfLayoutPlaceholder();
     }
 
-    setJobStage(job, "evaluating_citations", "Evaluating citations...", 55);
-    const citationsSection = ruleBasedReport.sections.find((item) => item.id === "citations");
-    if (citationsSection) {
-      upsertJobSection(job, citationsSection);
+    upsertJobSection(job, layoutPart.section);
+    await yieldToEventLoop();
+
+    setJobStage(job, "running_rule_checks", "Running rule-based checks...", 30);
+    const citationData = extractCitationData(parsedDocument.bodyLineRecords);
+    await yieldToEventLoop();
+    const referenceData = extractReferenceData(parsedDocument);
+    await yieldToEventLoop();
+
+    const parts = [{ section: layoutPart.section, itemIssues: layoutPart.itemIssues }];
+    for (const analyze of [analyzeDocumentStructure, analyzeTitlePage, analyzeBody]) {
+      const part = analyze(parsedDocument);
+      parts.push(part);
+      upsertJobSection(job, part.section);
+      await yieldToEventLoop();
     }
 
-    setJobStage(job, "evaluating_references", "Evaluating references...", 72);
-    const referencesSection = ruleBasedReport.sections.find((item) => item.id === "references");
-    if (referencesSection) {
-      upsertJobSection(job, referencesSection);
-    }
+    setJobStage(job, "evaluating_citations", "Evaluating citations...", 48);
+    const citationsPart = analyzeCitations(parsedDocument, citationData, referenceData);
+    parts.push(citationsPart);
+    upsertJobSection(job, citationsPart.section);
+    await yieldToEventLoop();
+
+    setJobStage(job, "evaluating_references", "Evaluating references...", 62);
+    const referencesPart = analyzeReferences(parsedDocument, citationData, referenceData);
+    parts.push(referencesPart);
+    upsertJobSection(job, referencesPart.section);
+    await yieldToEventLoop();
+
+    const ruleBasedReport = assembleRuleBasedReport({ parsedDocument, citationData, referenceData, parts });
 
     setJobStage(
       job,
@@ -149,7 +194,7 @@ export async function processReviewJob(job, buffer) {
           ? "Streaming comprehensive OpenAI APA review..."
           : "Streaming OpenAI APA review..."
         : "Skipping OpenAI review and finalizing...",
-      86,
+      72,
     );
 
     const llmReview = await runOpenAiReview({
@@ -157,6 +202,7 @@ export async function processReviewJob(job, buffer) {
       fileMeta: job.fileMeta,
       parsedDocument,
       ruleBasedReport,
+      layoutFacts: layoutPart.promptFacts,
       reviewMode: job.reviewMode,
       onTextDelta: (delta) => appendLlmPreview(job, delta),
     });
@@ -168,6 +214,7 @@ export async function processReviewJob(job, buffer) {
       job,
       parsedDocument,
       ruleBasedReport,
+      layoutFacts: layoutPart.promptFacts,
       llmReview,
     });
 

@@ -1,4 +1,4 @@
-import { JOB_TTL_MS } from "./config.js";
+import { JOB_TTL_MS, LLM_DELTA_FLUSH_MS } from "./config.js";
 
 const jobs = new Map();
 const TERMINAL_STATES = new Set(["completed", "failed"]);
@@ -51,6 +51,8 @@ export function createJob({ id, fileMeta, reviewMode }) {
     history: [],
     sections: {},
     llmPreview: "",
+    pendingLlmDelta: "",
+    llmFlushTimer: null,
     report: null,
     error: null,
     subscribers: new Set(),
@@ -120,26 +122,53 @@ export function upsertJobSection(job, section) {
   );
 }
 
-export function appendLlmPreview(job, delta) {
-  if (!delta) {
+function flushLlmPreview(job) {
+  if (job.llmFlushTimer) {
+    clearTimeout(job.llmFlushTimer);
+    job.llmFlushTimer = null;
+  }
+
+  if (!job.pendingLlmDelta) {
     return;
   }
 
-  job.llmPreview += delta;
+  const delta = job.pendingLlmDelta;
+  job.pendingLlmDelta = "";
 
   publish(
     job,
     "llm_delta",
     {
       delta,
-      llmPreview: job.llmPreview,
+      previewLength: job.llmPreview.length,
       timestamp: nowIso(),
     },
     { persist: false },
   );
 }
 
+export function appendLlmPreview(job, delta) {
+  if (!delta) {
+    return;
+  }
+
+  const isFirstDelta = job.llmPreview.length === 0;
+  job.llmPreview += delta;
+  job.pendingLlmDelta += delta;
+
+  if (isFirstDelta) {
+    flushLlmPreview(job);
+    return;
+  }
+
+  if (!job.llmFlushTimer) {
+    job.llmFlushTimer = setTimeout(() => flushLlmPreview(job), LLM_DELTA_FLUSH_MS);
+    job.llmFlushTimer.unref?.();
+  }
+}
+
 export function completeJob(job, report) {
+  flushLlmPreview(job);
   job.status = "completed";
   job.currentStage = "completed";
   job.report = report;
@@ -169,6 +198,7 @@ export function completeJob(job, report) {
 }
 
 export function failJob(job, error) {
+  flushLlmPreview(job);
   job.status = "failed";
   job.currentStage = "failed";
   job.error = {

@@ -23,5 +23,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       - name: Build frontend
         run: npm run build
+
+      - name: Smoke test review stream (rule-based only)
+        run: |
+          node server/src/index.js &
+          SERVER_PID=$!
+          for attempt in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3001/api/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          node scripts/smoke-review-stream.mjs http://127.0.0.1:3001
+          kill "$SERVER_PID"
