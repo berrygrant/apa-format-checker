@@ -330,7 +330,8 @@ export default function App() {
     }));
   }
 
-  const isGateVisible = authState.loading || (authState.enabled && !authState.authenticated);
+  const isGateVisible = !authState.loading && authState.enabled && !authState.authenticated;
+  const isIdle = jobStatus === "idle" && !streamState.report && streamState.statusHistory.length === 0;
 
   return (
     <div className="app-shell">
@@ -359,7 +360,14 @@ export default function App() {
         </div>
       </header>
 
-      {isGateVisible ? (
+      {authState.loading ? (
+        <main className="auth-workspace">
+          <section aria-busy="true" className="panel auth-panel">
+            <div className="eyebrow">Thesis APA Formatter</div>
+            <p className="auth-message">Loading the review workspace...</p>
+          </section>
+        </main>
+      ) : isGateVisible ? (
         <main className="auth-workspace">
           <section className="panel auth-panel">
             <div className="eyebrow">Protected Access</div>
@@ -369,33 +377,33 @@ export default function App() {
               review results use the same server-side session.
             </p>
 
-            {authState.loading ? (
-              <p className="auth-message">Checking access...</p>
-            ) : (
-              <form className="auth-form" onSubmit={handleLogin}>
-                <label className="auth-field">
-                  <span>Password</span>
-                  <input
-                    autoComplete="current-password"
-                    onChange={(event) =>
-                      setAuthState((previous) => ({
-                        ...previous,
-                        password: event.target.value,
-                        error: "",
-                      }))
-                    }
-                    type="password"
-                    value={authState.password}
-                  />
-                </label>
+            <form className="auth-form" onSubmit={handleLogin}>
+              <label className="auth-field">
+                <span>Password</span>
+                <input
+                  autoComplete="current-password"
+                  onChange={(event) =>
+                    setAuthState((previous) => ({
+                      ...previous,
+                      password: event.target.value,
+                      error: "",
+                    }))
+                  }
+                  type="password"
+                  value={authState.password}
+                />
+              </label>
 
-                <button className="primary-button" disabled={authState.isSubmitting || !authState.password.trim()} type="submit">
-                  {authState.isSubmitting ? "Checking..." : "Unlock App"}
-                </button>
-              </form>
-            )}
+              <button className="primary-button" disabled={authState.isSubmitting || !authState.password.trim()} type="submit">
+                {authState.isSubmitting ? "Checking..." : "Unlock App"}
+              </button>
+            </form>
 
-            {authState.error ? <p className="app-error">{authState.error}</p> : null}
+            {authState.error ? (
+              <p className="app-error" role="alert">
+                {authState.error}
+              </p>
+            ) : null}
           </section>
         </main>
       ) : (
@@ -416,6 +424,7 @@ export default function App() {
             <StatusTimeline
               currentStage={streamState.currentStage}
               history={streamState.statusHistory}
+              idle={isIdle}
               progress={streamState.progress}
               stages={REVIEW_STAGES}
             />
@@ -428,11 +437,20 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="sections-grid">
-                {SECTION_SLOTS.map((slot) => (
-                  <SectionCard fallbackLabel={slot.label} key={slot.id} section={deferredSections[slot.id]} sectionId={slot.id} />
-                ))}
-              </div>
+              {isIdle ? (
+                <div className="sections-empty-state">
+                  <p>
+                    Once you run a review, each APA area — parsing, layout, title page, body, citations, references, and
+                    the AI pass — streams into its own card here.
+                  </p>
+                </div>
+              ) : (
+                <div className="sections-grid">
+                  {SECTION_SLOTS.map((slot) => (
+                    <SectionCard fallbackLabel={slot.label} key={slot.id} section={deferredSections[slot.id]} sectionId={slot.id} />
+                  ))}
+                </div>
+              )}
             </section>
 
             {streamState.currentStage === "llm_review" && streamState.llmPreviewLength > 0 ? (
@@ -459,7 +477,11 @@ export default function App() {
               </section>
             )}
 
-            {appError ? <p className="app-error">{appError}</p> : null}
+            {appError ? (
+              <p className="app-error" role="alert">
+                {appError}
+              </p>
+            ) : null}
           </div>
         </main>
       )}

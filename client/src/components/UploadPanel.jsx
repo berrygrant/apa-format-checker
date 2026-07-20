@@ -27,6 +27,21 @@ export default memo(function UploadPanel({
     }
   }
 
+  function handleModeKeyDown(event, index) {
+    const isNext = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const isPrevious = event.key === "ArrowLeft" || event.key === "ArrowUp";
+
+    if (!isNext && !isPrevious) {
+      return;
+    }
+
+    event.preventDefault();
+    const offset = isNext ? 1 : -1;
+    const nextIndex = (index + offset + reviewModes.length) % reviewModes.length;
+    onReviewModeChange(reviewModes[nextIndex].id);
+    event.currentTarget.parentElement?.children[nextIndex]?.focus();
+  }
+
   return (
     <section className="panel upload-panel">
       <div className="eyebrow">Upload</div>
@@ -37,13 +52,16 @@ export default memo(function UploadPanel({
       <div aria-label="Review mode" className="review-mode-field" role="radiogroup">
         <span className="review-mode-label">Review mode</span>
         <div className="review-mode-options">
-          {reviewModes.map((mode) => (
+          {reviewModes.map((mode, index) => (
             <button
-              aria-pressed={reviewMode === mode.id}
+              aria-checked={reviewMode === mode.id}
               className={`review-mode-button ${reviewMode === mode.id ? "is-selected" : ""}`}
               disabled={isBusy}
               key={mode.id}
               onClick={() => onReviewModeChange(mode.id)}
+              onKeyDown={(event) => handleModeKeyDown(event, index)}
+              role="radio"
+              tabIndex={reviewMode === mode.id ? 0 : -1}
               type="button"
             >
               {mode.label}
@@ -105,7 +123,11 @@ export default memo(function UploadPanel({
         </div>
       ) : null}
 
-      {error ? <p className="form-error">{error}</p> : null}
+      {error ? (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 });

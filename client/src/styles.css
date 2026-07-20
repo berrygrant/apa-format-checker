@@ -1194,3 +1194,14 @@ select {
   color: var(--muted);
   font-size: 0.9rem;
 }
+
+.sections-empty-state {
+  padding: 22px 4px 8px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.sections-empty-state p {
+  margin: 0;
+  max-width: 640px;
+}

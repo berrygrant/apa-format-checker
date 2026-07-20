@@ -1,9 +1,10 @@
 import { memo } from "react";
 import { formatTimestamp } from "../lib/formatters.js";
 
-export default memo(function StatusTimeline({ currentStage, history, progress, stages }) {
+export default memo(function StatusTimeline({ currentStage, history, progress, stages, idle = false }) {
   const currentIndex = stages.findIndex((stage) => stage.id === currentStage);
   const latestUpdate = history.at(-1);
+  const clampedProgress = Math.max(0, Math.min(100, Math.round(progress || 0)));
 
   return (
     <section className="panel timeline-panel">
@@ -12,16 +13,23 @@ export default memo(function StatusTimeline({ currentStage, history, progress, s
           <div className="eyebrow">Streaming Status</div>
           <h3>Review progress</h3>
         </div>
-        <strong className="progress-value">{Math.max(0, Math.min(100, Math.round(progress || 0)))}%</strong>
+        {idle ? null : <strong className="progress-value">{clampedProgress}%</strong>}
       </div>
 
-      <div className="progress-track" aria-label="Review progress">
-        <div className="progress-fill" style={{ width: `${Math.max(0, Math.min(100, progress || 0))}%` }} />
+      <div
+        aria-label="Review progress"
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={idle ? 0 : clampedProgress}
+        className="progress-track"
+        role="progressbar"
+      >
+        <div className="progress-fill" style={{ width: `${idle ? 0 : clampedProgress}%` }} />
       </div>
 
-      <div className="status-current">
-        <strong>{latestUpdate?.message || "Waiting for the first review event."}</strong>
-        {latestUpdate?.timestamp ? <span>{formatTimestamp(latestUpdate.timestamp)}</span> : null}
+      <div aria-live="polite" className="status-current">
+        <strong>{idle ? "Ready — upload a document to begin." : latestUpdate?.message || "Waiting for the first review event."}</strong>
+        {!idle && latestUpdate?.timestamp ? <span>{formatTimestamp(latestUpdate.timestamp)}</span> : null}
       </div>
 
       <div className="step-pills">

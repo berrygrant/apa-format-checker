@@ -14,6 +14,15 @@ The production UI now uses:
 
 The legacy endpoints remain for local compatibility, but Lambda clients should use the streaming POST.
 
+## CloudFront caching
+
+The distribution has two behaviors:
+
+- `/assets/*` (Vite's content-hashed bundles) uses the managed CachingOptimized policy with `Compress: true`, and Express serves those files with `Cache-Control: public, max-age=31536000, immutable`. Page loads after the first hit the edge cache with gzip/brotli instead of pulling the full bundle through Lambda.
+- The default behavior stays on CachingDisabled with `Compress: false` — required so the SSE review stream is never buffered or compressed. `index.html` is served `no-cache`, so deploys roll out immediately.
+
+If the Vite `base`/output directory ever changes from `/assets/`, the `CacheBehaviors` path pattern in `template.yml` must change with it. Template changes to `CacheBehaviors` trigger a CloudFront distribution update, which adds several minutes to that deploy.
+
 ## Files
 
 - `Dockerfile` builds the app image and includes the AWS Lambda Web Adapter.
@@ -47,6 +56,8 @@ The secret must contain these JSON keys:
 ```
 
 `APP_AUTH_HOST` is intentionally not set in Lambda. If `APP_PASSWORD` is present, the password gate applies to the Function URL and to `apa.lingviz.com`.
+
+Optional tuning variables (defaults are set in code; override via the template if needed): `OPENAI_TIMEOUT_MS` (240000), `OPENAI_MAX_RETRIES` (1), and `LLM_DELTA_FLUSH_MS` (120) — the coalescing window for `llm_delta` SSE events.
 
 ## GitHub environment variables
 
