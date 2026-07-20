@@ -232,7 +232,7 @@ async function extractPdfRawText(buffer) {
   }
 }
 
-function buildParsedDocument(rawExtraction, options = {}) {
+export function buildParsedDocument(rawExtraction, options = {}) {
   const reviewMode = options.reviewMode ?? DEFAULT_REVIEW_MODE;
   const reviewModeConfig = getReviewModeConfig(reviewMode);
   const { titlePageWords, bodyWords, referencesWords, annotatedTitleLines, annotatedBodyLines, annotatedReferenceEntries } =
