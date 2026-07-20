@@ -72,6 +72,13 @@ export default memo(function ReportSummary({ report }) {
           <span>References missing</span>
           <strong>{report.document.referencesMissing ? "Yes" : "No"}</strong>
         </div>
+        {report.summary.aiAssessment ? (
+          <div className="summary-card">
+            <span>AI assessment</span>
+            <strong>{report.summary.aiAssessment.overallScore}/100</strong>
+            <span className="summary-card-note">{report.summary.aiAssessment.confidence} confidence</span>
+          </div>
+        ) : null}
       </div>
 
       <p className="report-headline">{report.summary.headline}</p>

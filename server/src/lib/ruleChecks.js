@@ -1,9 +1,4 @@
-const STATUS_RANK = {
-  info: 0,
-  pass: 1,
-  warning: 2,
-  fail: 3,
-};
+import { STATUS_RANK, computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
 
 const SECTION_ORDER = ["document", "titlePage", "body", "citations", "references"];
 
@@ -803,12 +798,6 @@ function findQuotedSegmentsWithoutLocator(segmentRecords) {
 
     return !/\b(?:p|pp|para)\.?\s*\d+/i.test(segmentRecord.text);
   });
-}
-
-function worstStatus(...statuses) {
-  return statuses.reduce((highest, status) => {
-    return STATUS_RANK[status] > STATUS_RANK[highest] ? status : highest;
-  }, "pass");
 }
 
 function buildHeadline(status, failCount, warningCount) {
@@ -1679,7 +1668,8 @@ export function assembleRuleBasedReport({ parsedDocument, citationData, referenc
   const warningCount = allFindings.filter((finding) => finding.status === "warning").length;
   const failCount = allFindings.filter((finding) => finding.status === "fail").length;
   const overallStatus = orderedSections.reduce((status, section) => worstStatus(status, section.status), "pass");
-  const overallScore = Math.max(0, 100 - failCount * 15 - warningCount * 6);
+  const issueCounts = countByStatus(itemIssues);
+  const overallScore = computeWeightedScore(issueCounts);
   const bodyMetrics = orderedSections.find((section) => section.id === "body")?.metrics ?? {};
 
   return {
@@ -1689,7 +1679,7 @@ export function assembleRuleBasedReport({ parsedDocument, citationData, referenc
       passCount,
       warningCount,
       failCount,
-      headline: buildHeadline(overallStatus, failCount, warningCount),
+      headline: buildHeadline(overallStatus, issueCounts.fail, issueCounts.warning),
     },
     sections: orderedSections,
     itemIssues,

@@ -154,6 +154,19 @@ async function readReviewStream(body) {
     throw new Error("Final report did not match the expected smoke-test shape.");
   }
 
+  if (!Array.isArray(finalReport.issueInventory)) {
+    throw new Error("Final report is missing the issueInventory array.");
+  }
+
+  const inventoryFailCount = finalReport.issueInventory.filter((issue) => issue.status === "fail").length;
+  const inventoryWarningCount = finalReport.issueInventory.filter((issue) => issue.status === "warning").length;
+
+  if (finalReport.summary.failCount !== inventoryFailCount || finalReport.summary.warningCount !== inventoryWarningCount) {
+    throw new Error(
+      `Headline counts must match the issue inventory (fail ${finalReport.summary.failCount}/${inventoryFailCount}, warning ${finalReport.summary.warningCount}/${inventoryWarningCount}).`,
+    );
+  }
+
   return {
     events,
     finalReport,

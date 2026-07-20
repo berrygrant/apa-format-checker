@@ -4,6 +4,7 @@ import StatusTimeline from "./components/StatusTimeline.jsx";
 import SectionCard from "./components/SectionCard.jsx";
 import ReportSummary from "./components/ReportSummary.jsx";
 import LlmActivityIndicator from "./components/LlmActivityIndicator.jsx";
+import IssueInventoryPanel from "./components/IssueInventoryPanel.jsx";
 import {
   UnauthorizedError,
   getAuthSession,
@@ -441,6 +442,7 @@ export default function App() {
             {deferredReport ? (
               <>
                 <ReportSummary report={deferredReport} />
+                <IssueInventoryPanel report={deferredReport} />
 
                 <details className="panel json-panel">
                   <summary>Raw APA compliance JSON</summary>
