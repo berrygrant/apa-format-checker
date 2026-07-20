@@ -1,6 +1,7 @@
+import { memo } from "react";
 import { formatTimestamp } from "../lib/formatters.js";
 
-export default function StatusTimeline({ currentStage, history, progress, stages }) {
+export default memo(function StatusTimeline({ currentStage, history, progress, stages }) {
   const currentIndex = stages.findIndex((stage) => stage.id === currentStage);
   const latestUpdate = history.at(-1);
 
@@ -46,4 +47,4 @@ export default function StatusTimeline({ currentStage, history, progress, stages
       </div>
     </section>
   );
-}
+});

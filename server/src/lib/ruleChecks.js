@@ -347,7 +347,7 @@ function buildSection(id, label, summary, findings, metrics = {}) {
   };
 }
 
-function extractCitationData(lineRecords) {
+export function extractCitationData(lineRecords) {
   const pairs = [];
   const formattingIssues = [];
   const seenPairSignatures = new Set();
@@ -662,23 +662,32 @@ function buildHeadline(status, failCount, warningCount) {
   return "No obvious APA 7 issues were detected in the parsed excerpts.";
 }
 
-export function runRuleBasedReview(parsedDocument) {
-  const { pairs: citationPairs, formattingIssues: nonApaCitationFormattingIssues } = extractCitationData(
-    parsedDocument.bodyLineRecords,
+export function extractReferenceData(parsedDocument) {
+  return {
+    referencePairs: extractReferencePairs(parsedDocument.referenceEntryRecords),
+  };
+}
+
+function buildDocumentContentLocation(parsedDocument) {
+  return buildSectionLocation("document", parsedDocument.mainLineRecords, parsedDocument.preReferencesText);
+}
+
+function buildDocumentEndLocation(parsedDocument) {
+  return buildLineLocation(
+    "document",
+    parsedDocument.mainLineRecords[parsedDocument.mainLineRecords.length - 1] ?? null,
+    parsedDocument.mainLineRecords.length > 0
+      ? `After line ${parsedDocument.mainLineRecords[parsedDocument.mainLineRecords.length - 1].lineNumber}`
+      : "Document start",
   );
-  const referencePairs = extractReferencePairs(parsedDocument.referenceEntryRecords);
-  const crossChecks = buildCrossChecks(citationPairs, referencePairs);
-  const headingMatches = HEADING_PATTERNS.filter((item) => item.regex.test(parsedDocument.normalizedText)).map(
-    (item) => item.label,
-  );
-  const numberedHeadingIssues = findHeadingNumberingIssues(parsedDocument.mainLineRecords);
-  const malformedEtAlIssues = findMalformedEtAlOccurrences(parsedDocument.bodyLineRecords);
-  const quoteLocatorIssues = findQuotedSegmentsWithoutLocator(parsedDocument.segmentRecords);
-  const referenceOrderingIssues = findReferenceOrderingIssues(referencePairs);
-  const pageCitationCount = [...parsedDocument.bodyText.matchAll(PAGE_CITATION_REGEX)].length;
-  const titlePageLocation = buildSectionLocation("titlePage", parsedDocument.titlePageLineRecords, parsedDocument.titlePageText);
-  const bodyLocation = buildSectionLocation("body", parsedDocument.bodyLineRecords, parsedDocument.bodyText);
-  const referencesLocation = buildSectionLocation(
+}
+
+function buildBodyLocation(parsedDocument) {
+  return buildSectionLocation("body", parsedDocument.bodyLineRecords, parsedDocument.bodyText);
+}
+
+function buildReferencesSectionLocation(parsedDocument) {
+  return buildSectionLocation(
     "references",
     parsedDocument.referenceLineRecords,
     parsedDocument.referencesText,
@@ -686,23 +695,11 @@ export function runRuleBasedReview(parsedDocument) {
       ? `References section starting at line ${parsedDocument.referencesHeadingLineNumber}`
       : "References section location unavailable",
   );
-  const documentEndLocation = buildLineLocation(
-    "document",
-    parsedDocument.mainLineRecords[parsedDocument.mainLineRecords.length - 1] ?? null,
-    parsedDocument.mainLineRecords.length > 0
-      ? `After line ${parsedDocument.mainLineRecords[parsedDocument.mainLineRecords.length - 1].lineNumber}`
-      : "Document start",
-  );
+}
 
-  const referenceKeySet = new Set(referencePairs.map((pair) => pair.key).filter(Boolean));
-  const citationKeySet = new Set(citationPairs.map((pair) => pair.key).filter(Boolean));
-  const unmatchedCitationPairs = citationPairs.filter((citationPair) => citationPair.key && !referenceKeySet.has(citationPair.key));
-  const uncitedReferencePairs = referencePairs.filter((referencePair) => referencePair.key && !citationKeySet.has(referencePair.key));
-  const missingYearReferences = referencePairs.filter((referencePair) => !referencePair.hasYear);
-  const referenceFormattingIssues = referencePairs.filter(
-    (referencePair) => referencePair.hasBareDoi || referencePair.hasRetrievedFrom,
-  );
-
+export function analyzeDocumentStructure(parsedDocument) {
+  const documentContentLocation = buildDocumentContentLocation(parsedDocument);
+  const documentEndLocation = buildDocumentEndLocation(parsedDocument);
   const itemIssues = [];
 
   if (parsedDocument.parserMessages.length > 0) {
@@ -714,7 +711,7 @@ export function runRuleBasedReview(parsedDocument) {
         title: "DOCX extraction warning",
         detail: "Mammoth returned parsing warnings that may affect downstream APA checks.",
         recommendation: "Inspect the DOCX for unsupported elements such as text boxes or embedded objects.",
-        location: buildSectionLocation("document", parsedDocument.mainLineRecords, parsedDocument.preReferencesText),
+        location: documentContentLocation,
       }),
     );
   }
@@ -728,7 +725,7 @@ export function runRuleBasedReview(parsedDocument) {
         title: "Limited extracted text",
         detail: `Only ${parsedDocument.wordCount} words were extracted, so some APA checks may be inconclusive.`,
         recommendation: "Confirm that the DOCX contains selectable text rather than scanned content.",
-        location: buildSectionLocation("document", parsedDocument.mainLineRecords, parsedDocument.preReferencesText),
+        location: documentContentLocation,
       }),
     );
   }
@@ -746,6 +743,76 @@ export function runRuleBasedReview(parsedDocument) {
       }),
     );
   }
+
+  const section = buildSection(
+    "document",
+    "Document Structure",
+    "Checks whether the parser extracted enough structured text to run the APA review reliably.",
+    [
+      parsedDocument.parserMessages.length === 0
+        ? makeFinding("pass", "DOCX extraction", "The document parsed cleanly with Mammoth.", "No parser remediation needed.")
+        : makeFinding(
+            "warning",
+            "DOCX extraction",
+            "Mammoth returned parsing warnings that may affect some downstream checks.",
+            "Inspect the source DOCX for unusual elements such as text boxes or embedded objects.",
+            parsedDocument.parserMessages.map((message) => message.message).join(" | "),
+            documentContentLocation,
+          ),
+      parsedDocument.wordCount >= 500
+        ? makeFinding(
+            "pass",
+            "Sufficient text extracted",
+            `The parser captured ${parsedDocument.wordCount} words, which is enough for a useful APA pass.`,
+            "Proceed with the hybrid review.",
+          )
+        : makeFinding(
+            "warning",
+            "Limited extracted text",
+            `Only ${parsedDocument.wordCount} words were extracted, so some APA checks may be inconclusive.`,
+            "Confirm that the DOCX contains selectable text rather than scanned content.",
+            null,
+            documentContentLocation,
+          ),
+      parsedDocument.referencesMissing
+        ? makeFinding(
+            "fail",
+            "References heading missing",
+            'A standalone "References" heading was not detected in the parsed text.',
+            'Add a "References" heading and ensure it appears as plain body text in the DOCX.',
+            null,
+            documentEndLocation,
+          )
+        : makeFinding(
+            "pass",
+            "References heading detected",
+            "A references section was identified in the parsed document.",
+            "Keep the heading on its own line so it remains detectable.",
+            null,
+            parsedDocument.referencesHeadingLineNumber
+              ? makeLocation({
+                  sectionId: "document",
+                  lineStart: parsedDocument.referencesHeadingLineNumber,
+                  lineEnd: parsedDocument.referencesHeadingLineNumber,
+                  excerpt: "References",
+                  labelOverride: `References heading at line ${parsedDocument.referencesHeadingLineNumber}`,
+                })
+              : null,
+          ),
+    ],
+    {
+      wordCount: parsedDocument.wordCount,
+      parserMessageCount: parsedDocument.parserMessages.length,
+      referenceEntryCount: parsedDocument.metrics.referenceEntryCount,
+    },
+  );
+
+  return { section, itemIssues };
+}
+
+export function analyzeTitlePage(parsedDocument) {
+  const titlePageLocation = buildSectionLocation("titlePage", parsedDocument.titlePageLineRecords, parsedDocument.titlePageText);
+  const itemIssues = [];
 
   if (parsedDocument.metrics.titlePageWords < 40) {
     itemIssues.push(
@@ -788,6 +855,73 @@ export function runRuleBasedReview(parsedDocument) {
       }),
     );
   }
+
+  const section = buildSection(
+    "titlePage",
+    "Title Page",
+    "Heuristic checks on the first extracted title-page excerpt.",
+    [
+      parsedDocument.metrics.titlePageWords >= 40
+        ? makeFinding(
+            "pass",
+            "Title-page excerpt captured",
+            `The first title-page excerpt contains ${parsedDocument.metrics.titlePageWords} words.`,
+            "No action required unless the title page is intentionally very short.",
+          )
+        : makeFinding(
+            "warning",
+            "Sparse title-page text",
+            `Only ${parsedDocument.metrics.titlePageWords} title-page words were extracted.`,
+            "Confirm that the title page content is present as editable text in the DOCX.",
+            null,
+            titlePageLocation,
+          ),
+      /\b(university|college|department|school|faculty|program|thesis|dissertation|submitted)\b/i.test(parsedDocument.titlePageText)
+        ? makeFinding(
+            "pass",
+            "Institutional metadata present",
+            "The title-page excerpt includes thesis or institutional wording.",
+            "Verify the exact APA placement manually before submission.",
+          )
+        : makeFinding(
+            "warning",
+            "Institutional metadata unclear",
+            "The title-page excerpt does not clearly show affiliation or thesis-submission wording.",
+            "Review the title page for author, affiliation, and thesis metadata placement.",
+            null,
+            titlePageLocation,
+          ),
+      /\bby\b/i.test(parsedDocument.titlePageText) || /\bsubmitted\b/i.test(parsedDocument.titlePageText)
+        ? makeFinding(
+            "pass",
+            "Authorship cue detected",
+            'The title-page excerpt contains an authorship cue such as "by" or "submitted".',
+            "Confirm exact line order manually in Word.",
+          )
+        : makeFinding(
+            "warning",
+            "Authorship cue not obvious",
+            "The parser did not clearly detect an authorship line in the title-page excerpt.",
+            "Check that the student name and thesis title appear on separate lines in APA order.",
+            null,
+            titlePageLocation,
+          ),
+    ],
+    {
+      excerptWordCount: parsedDocument.metrics.titlePageWords,
+    },
+  );
+
+  return { section, itemIssues };
+}
+
+export function analyzeBody(parsedDocument) {
+  const bodyLocation = buildBodyLocation(parsedDocument);
+  const headingMatches = HEADING_PATTERNS.filter((item) => item.regex.test(parsedDocument.normalizedText)).map(
+    (item) => item.label,
+  );
+  const numberedHeadingIssues = findHeadingNumberingIssues(parsedDocument.mainLineRecords);
+  const itemIssues = [];
 
   if (parsedDocument.metrics.bodyWords < 300) {
     itemIssues.push(
@@ -854,6 +988,94 @@ export function runRuleBasedReview(parsedDocument) {
       }),
     );
   }
+
+  const section = buildSection(
+    "body",
+    "Body and Headings",
+    "Looks for enough body text, common APA section headings, and section-numbering continuity when numbered headings are used.",
+    [
+      parsedDocument.metrics.bodyWords >= 300
+        ? makeFinding(
+            "pass",
+            "Body excerpt captured",
+            `The extracted body excerpt contains ${parsedDocument.metrics.bodyWords} words.`,
+            "No action required.",
+          )
+        : makeFinding(
+            "warning",
+            "Short body excerpt",
+            `Only ${parsedDocument.metrics.bodyWords} body words were captured for review.`,
+            "Verify that body text starts after the title page and remains selectable in the DOCX.",
+            null,
+            bodyLocation,
+          ),
+      headingMatches.length >= 2
+        ? makeFinding(
+            "pass",
+            "Section headings detected",
+            `Detected heading cues: ${headingMatches.join(", ")}.`,
+            "Keep heading levels consistent throughout the thesis.",
+          )
+        : makeFinding(
+            "warning",
+            "Few APA-style headings detected",
+            "The parser found limited evidence of APA-style section headings in the excerpt.",
+            "Review heading levels, especially for major thesis sections.",
+            null,
+            bodyLocation,
+          ),
+      numberedHeadingIssues.length === 0
+        ? makeFinding(
+            "pass",
+            "Numbered headings stay in sequence",
+            "No obvious numbering gaps were detected among numbered top-level headings.",
+            "No action required.",
+          )
+        : makeFinding(
+            "warning",
+            "Numbered heading sequence issue",
+            `Detected ${numberedHeadingIssues.length} numbered heading sequence issue${numberedHeadingIssues.length === 1 ? "" : "s"}.`,
+            "Review chapter or section numbering for missing, duplicated, or out-of-order values.",
+            null,
+            buildLineLocation("body", numberedHeadingIssues[0].current.lineRecord),
+          ),
+      parsedDocument.segments.length >= 6
+        ? makeFinding(
+            "pass",
+            "Multi-paragraph structure detected",
+            `The document contains ${parsedDocument.segments.length} text segments.`,
+            "No action required.",
+          )
+        : makeFinding(
+            "warning",
+            "Limited paragraph structure",
+            "The parsed DOCX has relatively few paragraph breaks, which can hide heading and spacing issues.",
+            "Check paragraph breaks and body structure in the source document.",
+            null,
+            bodyLocation,
+          ),
+    ],
+    {
+      bodyWordCount: parsedDocument.metrics.bodyWords,
+      headingCount: headingMatches.length,
+      segmentCount: parsedDocument.segments.length,
+      numberedHeadingIssueCount: numberedHeadingIssues.length,
+    },
+  );
+
+  return { section, itemIssues };
+}
+
+export function analyzeCitations(parsedDocument, citationData, referenceData) {
+  const { pairs: citationPairs, formattingIssues: nonApaCitationFormattingIssues } = citationData;
+  const { referencePairs } = referenceData;
+  const bodyLocation = buildBodyLocation(parsedDocument);
+  const malformedEtAlIssues = findMalformedEtAlOccurrences(parsedDocument.bodyLineRecords);
+  const quoteLocatorIssues = findQuotedSegmentsWithoutLocator(parsedDocument.segmentRecords);
+  const pageCitationCount = [...parsedDocument.bodyText.matchAll(PAGE_CITATION_REGEX)].length;
+  const referenceKeySet = new Set(referencePairs.map((pair) => pair.key).filter(Boolean));
+  const unmatchedCitationPairs = citationPairs.filter((citationPair) => citationPair.key && !referenceKeySet.has(citationPair.key));
+  const itemIssues = [];
 
   if (citationPairs.length === 0 && parsedDocument.metrics.bodyWords >= 600) {
     itemIssues.push(
@@ -930,6 +1152,97 @@ export function runRuleBasedReview(parsedDocument) {
       }),
     );
   }
+
+  const section = buildSection(
+    "citations",
+    "Citations",
+    "Checks citation density, common APA citation syntax, and citation/reference crosswalks.",
+    [
+      citationPairs.length > 0
+        ? makeFinding(
+            "pass",
+            "In-text citations detected",
+            `Detected ${citationPairs.length} citation instance${citationPairs.length === 1 ? "" : "s"} in the body excerpt.`,
+            "Confirm punctuation and italicization manually where needed.",
+          )
+        : makeFinding(
+            parsedDocument.metrics.bodyWords >= 600 ? "fail" : "warning",
+            "No in-text citations detected",
+            "No APA-style in-text citations were detected in the body excerpt.",
+            "Review the body for parenthetical or narrative citations.",
+            null,
+            bodyLocation,
+          ),
+      malformedEtAlIssues.length === 0
+        ? makeFinding("pass", "No obvious et al. errors", 'No malformed "et al." patterns were detected.', "No action required.")
+        : makeFinding(
+            "fail",
+            "Malformed et al. citations found",
+            `Detected ${malformedEtAlIssues.length} likely malformed "et al." citation${malformedEtAlIssues.length === 1 ? "" : "s"}.`,
+            'Use "et al." with a trailing period in APA 7.',
+            null,
+            buildLineLocation("citations", malformedEtAlIssues[0].lineRecord),
+          ),
+      quoteLocatorIssues.length === 0
+        ? makeFinding(
+            "pass",
+            "Locator citations not obviously missing",
+            "No obvious mismatch between quotations and page-style locators was detected.",
+            "No action required.",
+          )
+        : makeFinding(
+            "warning",
+            "Quoted text may lack locator citations",
+            `Detected ${quoteLocatorIssues.length} quoted paragraph${quoteLocatorIssues.length === 1 ? "" : "s"} without a page or paragraph locator.`,
+            "Check direct quotations for APA page or paragraph citations.",
+            null,
+            makeLocation({
+              sectionId: "citations",
+              lineStart: quoteLocatorIssues[0].lineStart,
+              lineEnd: quoteLocatorIssues[0].lineEnd,
+              paragraphNumber: quoteLocatorIssues[0].paragraphNumber,
+              excerpt: quoteLocatorIssues[0].text,
+            }),
+          ),
+      unmatchedCitationPairs.length === 0
+        ? makeFinding(
+            "pass",
+            "Citations matched to references",
+            "Every detectable citation pair in the excerpt was found in the extracted references.",
+            "No action required.",
+          )
+        : makeFinding(
+            unmatchedCitationPairs.length >= 3 ? "fail" : "warning",
+            "Citations missing from references",
+            `${unmatchedCitationPairs.length} in-text citation${unmatchedCitationPairs.length === 1 ? "" : "s"} could not be matched to the references list.`,
+            "Check author-year consistency between in-text citations and the References section.",
+            null,
+            unmatchedCitationPairs[0].location,
+          ),
+    ],
+    {
+      citationCount: citationPairs.length,
+      pageCitationCount,
+      unmatchedCitationCount: unmatchedCitationPairs.length,
+      malformedEtAlCount: malformedEtAlIssues.length,
+    },
+  );
+
+  return { section, itemIssues };
+}
+
+export function analyzeReferences(parsedDocument, citationData, referenceData) {
+  const { pairs: citationPairs } = citationData;
+  const { referencePairs } = referenceData;
+  const referencesLocation = buildReferencesSectionLocation(parsedDocument);
+  const referenceOrderingIssues = findReferenceOrderingIssues(referencePairs);
+  const citationKeySet = new Set(citationPairs.map((pair) => pair.key).filter(Boolean));
+  const uncitedReferencePairs = referencePairs.filter((referencePair) => referencePair.key && !citationKeySet.has(referencePair.key));
+  const missingYearReferences = referencePairs.filter((referencePair) => !referencePair.hasYear);
+  const referenceFormattingIssues = referencePairs.filter(
+    (referencePair) => referencePair.hasBareDoi || referencePair.hasRetrievedFrom,
+  );
+  const itemIssues = [];
 
   if (parsedDocument.referencesMissing) {
     itemIssues.push(
@@ -1019,275 +1332,7 @@ export function runRuleBasedReview(parsedDocument) {
     );
   }
 
-  const documentSection = buildSection(
-    "document",
-    "Document Structure",
-    "Checks whether the parser extracted enough structured text to run the APA review reliably.",
-    [
-      parsedDocument.parserMessages.length === 0
-        ? makeFinding("pass", "DOCX extraction", "The document parsed cleanly with Mammoth.", "No parser remediation needed.")
-        : makeFinding(
-            "warning",
-            "DOCX extraction",
-            "Mammoth returned parsing warnings that may affect some downstream checks.",
-            "Inspect the source DOCX for unusual elements such as text boxes or embedded objects.",
-            parsedDocument.parserMessages.map((message) => message.message).join(" | "),
-            buildSectionLocation("document", parsedDocument.mainLineRecords, parsedDocument.preReferencesText),
-          ),
-      parsedDocument.wordCount >= 500
-        ? makeFinding(
-            "pass",
-            "Sufficient text extracted",
-            `The parser captured ${parsedDocument.wordCount} words, which is enough for a useful APA pass.`,
-            "Proceed with the hybrid review.",
-          )
-        : makeFinding(
-            "warning",
-            "Limited extracted text",
-            `Only ${parsedDocument.wordCount} words were extracted, so some APA checks may be inconclusive.`,
-            "Confirm that the DOCX contains selectable text rather than scanned content.",
-            null,
-            buildSectionLocation("document", parsedDocument.mainLineRecords, parsedDocument.preReferencesText),
-          ),
-      parsedDocument.referencesMissing
-        ? makeFinding(
-            "fail",
-            "References heading missing",
-            'A standalone "References" heading was not detected in the parsed text.',
-            'Add a "References" heading and ensure it appears as plain body text in the DOCX.',
-            null,
-            documentEndLocation,
-          )
-        : makeFinding(
-            "pass",
-            "References heading detected",
-            "A references section was identified in the parsed document.",
-            "Keep the heading on its own line so it remains detectable.",
-            null,
-            parsedDocument.referencesHeadingLineNumber
-              ? makeLocation({
-                  sectionId: "document",
-                  lineStart: parsedDocument.referencesHeadingLineNumber,
-                  lineEnd: parsedDocument.referencesHeadingLineNumber,
-                  excerpt: "References",
-                  labelOverride: `References heading at line ${parsedDocument.referencesHeadingLineNumber}`,
-                })
-              : null,
-          ),
-    ],
-    {
-      wordCount: parsedDocument.wordCount,
-      parserMessageCount: parsedDocument.parserMessages.length,
-      referenceEntryCount: parsedDocument.metrics.referenceEntryCount,
-    },
-  );
-
-  const titlePageSection = buildSection(
-    "titlePage",
-    "Title Page",
-    "Heuristic checks on the first extracted title-page excerpt.",
-    [
-      parsedDocument.metrics.titlePageWords >= 40
-        ? makeFinding(
-            "pass",
-            "Title-page excerpt captured",
-            `The first title-page excerpt contains ${parsedDocument.metrics.titlePageWords} words.`,
-            "No action required unless the title page is intentionally very short.",
-          )
-        : makeFinding(
-            "warning",
-            "Sparse title-page text",
-            `Only ${parsedDocument.metrics.titlePageWords} title-page words were extracted.`,
-            "Confirm that the title page content is present as editable text in the DOCX.",
-            null,
-            titlePageLocation,
-          ),
-      /\b(university|college|department|school|faculty|program|thesis|dissertation|submitted)\b/i.test(parsedDocument.titlePageText)
-        ? makeFinding(
-            "pass",
-            "Institutional metadata present",
-            "The title-page excerpt includes thesis or institutional wording.",
-            "Verify the exact APA placement manually before submission.",
-          )
-        : makeFinding(
-            "warning",
-            "Institutional metadata unclear",
-            "The title-page excerpt does not clearly show affiliation or thesis-submission wording.",
-            "Review the title page for author, affiliation, and thesis metadata placement.",
-            null,
-            titlePageLocation,
-          ),
-      /\bby\b/i.test(parsedDocument.titlePageText) || /\bsubmitted\b/i.test(parsedDocument.titlePageText)
-        ? makeFinding(
-            "pass",
-            "Authorship cue detected",
-            'The title-page excerpt contains an authorship cue such as "by" or "submitted".',
-            "Confirm exact line order manually in Word.",
-          )
-        : makeFinding(
-            "warning",
-            "Authorship cue not obvious",
-            "The parser did not clearly detect an authorship line in the title-page excerpt.",
-            "Check that the student name and thesis title appear on separate lines in APA order.",
-            null,
-            titlePageLocation,
-          ),
-    ],
-    {
-      excerptWordCount: parsedDocument.metrics.titlePageWords,
-    },
-  );
-
-  const bodySection = buildSection(
-    "body",
-    "Body and Headings",
-    "Looks for enough body text, common APA section headings, and section-numbering continuity when numbered headings are used.",
-    [
-      parsedDocument.metrics.bodyWords >= 300
-        ? makeFinding(
-            "pass",
-            "Body excerpt captured",
-            `The extracted body excerpt contains ${parsedDocument.metrics.bodyWords} words.`,
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Short body excerpt",
-            `Only ${parsedDocument.metrics.bodyWords} body words were captured for review.`,
-            "Verify that body text starts after the title page and remains selectable in the DOCX.",
-            null,
-            bodyLocation,
-          ),
-      headingMatches.length >= 2
-        ? makeFinding(
-            "pass",
-            "Section headings detected",
-            `Detected heading cues: ${headingMatches.join(", ")}.`,
-            "Keep heading levels consistent throughout the thesis.",
-          )
-        : makeFinding(
-            "warning",
-            "Few APA-style headings detected",
-            "The parser found limited evidence of APA-style section headings in the excerpt.",
-            "Review heading levels, especially for major thesis sections.",
-            null,
-            bodyLocation,
-          ),
-      numberedHeadingIssues.length === 0
-        ? makeFinding(
-            "pass",
-            "Numbered headings stay in sequence",
-            "No obvious numbering gaps were detected among numbered top-level headings.",
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Numbered heading sequence issue",
-            `Detected ${numberedHeadingIssues.length} numbered heading sequence issue${numberedHeadingIssues.length === 1 ? "" : "s"}.`,
-            "Review chapter or section numbering for missing, duplicated, or out-of-order values.",
-            null,
-            buildLineLocation("body", numberedHeadingIssues[0].current.lineRecord),
-          ),
-      parsedDocument.segments.length >= 6
-        ? makeFinding(
-            "pass",
-            "Multi-paragraph structure detected",
-            `The document contains ${parsedDocument.segments.length} text segments.`,
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Limited paragraph structure",
-            "The parsed DOCX has relatively few paragraph breaks, which can hide heading and spacing issues.",
-            "Check paragraph breaks and body structure in the source document.",
-            null,
-            bodyLocation,
-          ),
-    ],
-    {
-      bodyWordCount: parsedDocument.metrics.bodyWords,
-      headingCount: headingMatches.length,
-      segmentCount: parsedDocument.segments.length,
-      numberedHeadingIssueCount: numberedHeadingIssues.length,
-    },
-  );
-
-  const citationsSection = buildSection(
-    "citations",
-    "Citations",
-    "Checks citation density, common APA citation syntax, and citation/reference crosswalks.",
-    [
-      citationPairs.length > 0
-        ? makeFinding(
-            "pass",
-            "In-text citations detected",
-            `Detected ${citationPairs.length} citation instance${citationPairs.length === 1 ? "" : "s"} in the body excerpt.`,
-            "Confirm punctuation and italicization manually where needed.",
-          )
-        : makeFinding(
-            parsedDocument.metrics.bodyWords >= 600 ? "fail" : "warning",
-            "No in-text citations detected",
-            "No APA-style in-text citations were detected in the body excerpt.",
-            "Review the body for parenthetical or narrative citations.",
-            null,
-            bodyLocation,
-          ),
-      malformedEtAlIssues.length === 0
-        ? makeFinding("pass", "No obvious et al. errors", 'No malformed "et al." patterns were detected.', "No action required.")
-        : makeFinding(
-            "fail",
-            "Malformed et al. citations found",
-            `Detected ${malformedEtAlIssues.length} likely malformed "et al." citation${malformedEtAlIssues.length === 1 ? "" : "s"}.`,
-            'Use "et al." with a trailing period in APA 7.',
-            null,
-            buildLineLocation("citations", malformedEtAlIssues[0].lineRecord),
-          ),
-      quoteLocatorIssues.length === 0
-        ? makeFinding(
-            "pass",
-            "Locator citations not obviously missing",
-            "No obvious mismatch between quotations and page-style locators was detected.",
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Quoted text may lack locator citations",
-            `Detected ${quoteLocatorIssues.length} quoted paragraph${quoteLocatorIssues.length === 1 ? "" : "s"} without a page or paragraph locator.`,
-            "Check direct quotations for APA page or paragraph citations.",
-            null,
-            makeLocation({
-              sectionId: "citations",
-              lineStart: quoteLocatorIssues[0].lineStart,
-              lineEnd: quoteLocatorIssues[0].lineEnd,
-              paragraphNumber: quoteLocatorIssues[0].paragraphNumber,
-              excerpt: quoteLocatorIssues[0].text,
-            }),
-          ),
-      unmatchedCitationPairs.length === 0
-        ? makeFinding(
-            "pass",
-            "Citations matched to references",
-            "Every detectable citation pair in the excerpt was found in the extracted references.",
-            "No action required.",
-          )
-        : makeFinding(
-            unmatchedCitationPairs.length >= 3 ? "fail" : "warning",
-            "Citations missing from references",
-            `${unmatchedCitationPairs.length} in-text citation${unmatchedCitationPairs.length === 1 ? "" : "s"} could not be matched to the references list.`,
-            "Check author-year consistency between in-text citations and the References section.",
-            null,
-            unmatchedCitationPairs[0].location,
-          ),
-    ],
-    {
-      citationCount: citationPairs.length,
-      pageCitationCount,
-      unmatchedCitationCount: unmatchedCitationPairs.length,
-      malformedEtAlCount: malformedEtAlIssues.length,
-    },
-  );
-
-  const referencesSection = buildSection(
+  const section = buildSection(
     "references",
     "References",
     "Checks reference list presence, rough entry structure, ordering, and citation crosswalks.",
@@ -1378,14 +1423,21 @@ export function runRuleBasedReview(parsedDocument) {
     },
   );
 
-  const sections = [documentSection, titlePageSection, bodySection, citationsSection, referencesSection];
+  return { section, itemIssues };
+}
+
+export function assembleRuleBasedReport({ parsedDocument, citationData, referenceData, parts }) {
+  const crossChecks = buildCrossChecks(citationData.pairs, referenceData.referencePairs);
+  const sections = parts.map((part) => part.section);
   const orderedSections = SECTION_ORDER.map((sectionId) => sections.find((section) => section.id === sectionId)).filter(Boolean);
+  const itemIssues = parts.flatMap((part) => part.itemIssues);
   const allFindings = orderedSections.flatMap((section) => section.findings);
   const passCount = allFindings.filter((finding) => finding.status === "pass").length;
   const warningCount = allFindings.filter((finding) => finding.status === "warning").length;
   const failCount = allFindings.filter((finding) => finding.status === "fail").length;
   const overallStatus = orderedSections.reduce((status, section) => worstStatus(status, section.status), "pass");
   const overallScore = Math.max(0, 100 - failCount * 15 - warningCount * 6);
+  const bodyMetrics = orderedSections.find((section) => section.id === "body")?.metrics ?? {};
 
   return {
     summary: {
@@ -1400,12 +1452,26 @@ export function runRuleBasedReview(parsedDocument) {
     itemIssues,
     crossChecks,
     metrics: {
-      citationCount: citationPairs.length,
-      referenceCount: referencePairs.length,
-      headingCount: headingMatches.length,
-      numberedHeadingIssueCount: numberedHeadingIssues.length,
+      citationCount: citationData.pairs.length,
+      referenceCount: referenceData.referencePairs.length,
+      headingCount: bodyMetrics.headingCount ?? 0,
+      numberedHeadingIssueCount: bodyMetrics.numberedHeadingIssueCount ?? 0,
       itemIssueCount: itemIssues.length,
     },
     limitations: buildReviewLimitations(parsedDocument),
   };
+}
+
+export function runRuleBasedReview(parsedDocument) {
+  const citationData = extractCitationData(parsedDocument.bodyLineRecords);
+  const referenceData = extractReferenceData(parsedDocument);
+  const parts = [
+    analyzeDocumentStructure(parsedDocument),
+    analyzeTitlePage(parsedDocument),
+    analyzeBody(parsedDocument),
+    analyzeCitations(parsedDocument, citationData, referenceData),
+    analyzeReferences(parsedDocument, citationData, referenceData),
+  ];
+
+  return assembleRuleBasedReport({ parsedDocument, citationData, referenceData, parts });
 }

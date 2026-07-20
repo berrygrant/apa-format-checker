@@ -124,6 +124,16 @@ async function readReviewStream(body) {
       const payload = JSON.parse(event.data);
       events.push(event.type);
 
+      if (event.type === "llm_delta") {
+        if (typeof payload.delta !== "string" || !Number.isFinite(payload.previewLength)) {
+          throw new Error("llm_delta events must carry a string delta and numeric previewLength.");
+        }
+
+        if ("llmPreview" in payload) {
+          throw new Error("llm_delta events must not resend the accumulated llmPreview buffer.");
+        }
+      }
+
       if (event.type === "complete") {
         finalReport = payload.report;
       } else if (event.type === "review_error") {

@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from "./lib/auth.js";
 import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PDF_MIME_TYPES, PORT } from "./lib/config.js";
+import { warmParsers } from "./lib/docxParser.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
 import { getRequestMetricsSnapshot, recordReviewRequest } from "./lib/requestMetrics.js";
 import { normalizeReviewMode } from "./lib/reviewMode.js";
@@ -17,6 +18,8 @@ import { BACKEND_ONLY_HTML } from "./lib/staticFallback.js";
 
 const app = express();
 app.set("trust proxy", 1);
+
+warmParsers();
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -228,7 +231,25 @@ app.get("/api/review/stream/:jobId", requireAppAuth, (req, res) => {
 });
 
 if (hasBuiltClient) {
-  app.use(express.static(clientDist));
+  // Vite emits content-hashed filenames under /assets, so they can be cached
+  // forever; index.html must stay revalidated so deploys roll out immediately.
+  app.use(
+    "/assets",
+    express.static(resolve(clientDist, "assets"), {
+      immutable: true,
+      maxAge: "1y",
+      fallthrough: false,
+    }),
+  );
+  app.use(
+    express.static(clientDist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
 
   app.get("*", (req, res, next) => {
     if (isApiPath(req)) {

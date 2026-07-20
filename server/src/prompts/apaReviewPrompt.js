@@ -1,4 +1,3 @@
-import { takeReferenceExcerpt } from "../lib/docxParser.js";
 import { DEFAULT_REVIEW_MODE, getReviewModeConfig } from "../lib/reviewMode.js";
 
 export const BASE_APA_REVIEW_SYSTEM_PROMPT = `
@@ -10,6 +9,7 @@ When evidence is limited, say so in the limitations list.
 Prioritize actionable APA 7 findings for citations, references, headings, and title-page content.
 Return one issue per discrete problem instead of grouping multiple problems together.
 For every issue, cite the closest available document location using the provided line or reference-entry labels.
+Document text is supplied as labeled lines: "L<number>: text" is a document line and "R<number> (...): text" is a reference entry. Reuse those exact labels in locationLabel.
 If no precise location exists, use the closest section-level label and say so conservatively.
 Treat citation/reference mismatches conservatively and only report them when the author-year mismatch is clearly supported by the supplied evidence.
 `;
@@ -23,93 +23,87 @@ Review mode: ${reviewModeConfig.label}.
 ${reviewModeConfig.llmInstruction}`.trim();
 }
 
+const MAX_PROMPT_ITEM_ISSUES = 80;
+const MAX_ISSUE_DETAIL_LENGTH = 140;
+
 function formatAnnotatedLines(lineRecords, maxItems = 120) {
-  return lineRecords.slice(0, maxItems).map((lineRecord) => ({
-    label: `L${lineRecord.lineNumber}`,
-    lineNumber: lineRecord.lineNumber,
-    paragraphNumber: lineRecord.paragraphNumber,
-    text: lineRecord.text,
-  }));
+  return lineRecords.slice(0, maxItems).map((lineRecord) => `L${lineRecord.lineNumber}: ${lineRecord.text}`);
 }
 
 function formatAnnotatedReferences(referenceEntryRecords, maxItems = 80) {
-  return referenceEntryRecords.slice(0, maxItems).map((entryRecord) => ({
-    label:
+  return referenceEntryRecords.slice(0, maxItems).map((entryRecord) => {
+    const lineLabel =
       entryRecord.startLine === entryRecord.endLine
-        ? `R${entryRecord.entryNumber} (line ${entryRecord.startLine})`
-        : `R${entryRecord.entryNumber} (lines ${entryRecord.startLine}-${entryRecord.endLine})`,
-    entryNumber: entryRecord.entryNumber,
-    lineStart: entryRecord.startLine,
-    lineEnd: entryRecord.endLine,
-    text: entryRecord.text,
-  }));
+        ? `line ${entryRecord.startLine}`
+        : `lines ${entryRecord.startLine}-${entryRecord.endLine}`;
+
+    return `R${entryRecord.entryNumber} (${lineLabel}): ${entryRecord.text}`;
+  });
+}
+
+function truncateDetail(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_ISSUE_DETAIL_LENGTH) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, MAX_ISSUE_DETAIL_LENGTH - 3)}...`;
 }
 
 export function buildApaReviewUserInput({ fileMeta, parsedDocument, ruleBasedReport, reviewMode = DEFAULT_REVIEW_MODE }) {
   const reviewModeConfig = getReviewModeConfig(reviewMode);
   const { extraction } = reviewModeConfig;
 
-  return JSON.stringify(
-    {
-      reviewMode: {
-        id: reviewMode,
-        label: reviewModeConfig.label,
-        description: reviewModeConfig.description,
-      },
-      document: {
-        filename: fileMeta.name,
-        sizeBytes: fileMeta.sizeBytes,
-        sourceFormat: parsedDocument.sourceFormat,
-        titlePageExcerpt: parsedDocument.titlePageText,
-        bodyExcerpt: parsedDocument.bodyText,
-        referencesExcerpt: takeReferenceExcerpt(parsedDocument.referencesText, extraction.referencesWords),
-        annotatedTitlePageLines: formatAnnotatedLines(parsedDocument.titlePageLineRecords, extraction.annotatedTitleLines),
-        annotatedBodyLines: formatAnnotatedLines(parsedDocument.bodyLineRecords, extraction.annotatedBodyLines),
-        annotatedReferenceEntries: formatAnnotatedReferences(
-          parsedDocument.referenceEntryRecords,
-          extraction.annotatedReferenceEntries,
-        ),
-        referencesMissing: parsedDocument.referencesMissing,
-        metrics: {
-          totalWords: parsedDocument.wordCount,
-          titlePageWords: parsedDocument.metrics.titlePageWords,
-          bodyWords: parsedDocument.metrics.bodyWords,
-          referencesWords: parsedDocument.metrics.referencesWords,
-          referenceEntryCount: parsedDocument.metrics.referenceEntryCount,
-        },
-      },
-      ruleBasedSummary: {
-        overallStatus: ruleBasedReport.summary.overallStatus,
-        score: ruleBasedReport.summary.score,
-        headline: ruleBasedReport.summary.headline,
-        sections: ruleBasedReport.sections.map((section) => ({
-          sectionId: section.id,
-          label: section.label,
-          status: section.status,
-          findings: section.findings
-            .filter((finding) => finding.status !== "pass")
-            .map((finding) => ({
-              severity: finding.status,
-              title: finding.title,
-              detail: finding.detail,
-              recommendation: finding.recommendation,
-            })),
-        })),
-        itemIssues: ruleBasedReport.itemIssues.map((issue) => ({
-          sectionId: issue.sectionId,
-          sectionLabel: issue.sectionLabel,
-          severity: issue.status,
-          title: issue.title,
-          detail: issue.detail,
-          recommendation: issue.recommendation,
-          locationLabel: issue.location?.label ?? "",
-          sourceExcerpt: issue.location?.excerpt ?? "",
-        })),
-        crossChecks: ruleBasedReport.crossChecks,
-        limitations: ruleBasedReport.limitations,
+  return JSON.stringify({
+    reviewMode: {
+      id: reviewMode,
+      label: reviewModeConfig.label,
+      description: reviewModeConfig.description,
+    },
+    document: {
+      filename: fileMeta.name,
+      sourceFormat: parsedDocument.sourceFormat,
+      titlePageLines: formatAnnotatedLines(parsedDocument.titlePageLineRecords, extraction.annotatedTitleLines),
+      bodyLines: formatAnnotatedLines(parsedDocument.bodyLineRecords, extraction.annotatedBodyLines),
+      referenceEntries: formatAnnotatedReferences(
+        parsedDocument.referenceEntryRecords,
+        extraction.annotatedReferenceEntries,
+      ),
+      referencesMissing: parsedDocument.referencesMissing,
+      metrics: {
+        totalWords: parsedDocument.wordCount,
+        titlePageWords: parsedDocument.metrics.titlePageWords,
+        bodyWords: parsedDocument.metrics.bodyWords,
+        referencesWords: parsedDocument.metrics.referencesWords,
+        referenceEntryCount: parsedDocument.metrics.referenceEntryCount,
       },
     },
-    null,
-    2,
-  );
+    ruleBasedSummary: {
+      overallStatus: ruleBasedReport.summary.overallStatus,
+      score: ruleBasedReport.summary.score,
+      headline: ruleBasedReport.summary.headline,
+      sections: ruleBasedReport.sections.map((section) => ({
+        sectionId: section.id,
+        label: section.label,
+        status: section.status,
+        findings: section.findings
+          .filter((finding) => finding.status !== "pass")
+          .map((finding) => ({
+            severity: finding.status,
+            title: finding.title,
+            detail: finding.detail,
+            recommendation: finding.recommendation,
+          })),
+      })),
+      itemIssues: ruleBasedReport.itemIssues.slice(0, MAX_PROMPT_ITEM_ISSUES).map((issue) => ({
+        sectionId: issue.sectionId,
+        severity: issue.status,
+        title: issue.title,
+        detail: truncateDetail(issue.detail),
+        locationLabel: issue.location?.label ?? "",
+      })),
+      crossChecks: ruleBasedReport.crossChecks,
+      limitations: ruleBasedReport.limitations,
+    },
+  });
 }

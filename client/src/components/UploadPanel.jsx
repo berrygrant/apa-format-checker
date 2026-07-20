@@ -1,8 +1,8 @@
-import { useId, useState } from "react";
+import { memo, useId, useState } from "react";
 import { SUPPORTED_FILE_LABEL } from "../lib/constants.js";
 import { formatBytes } from "../lib/formatters.js";
 
-export default function UploadPanel({
+export default memo(function UploadPanel({
   file,
   error,
   isBusy,
@@ -107,4 +107,4 @@ export default function UploadPanel({
       {error ? <p className="form-error">{error}</p> : null}
     </section>
   );
-}
+});

@@ -18,10 +18,6 @@ function tokenize(text) {
     .filter(Boolean);
 }
 
-function takeWords(text, count) {
-  return tokenize(text).slice(0, count).join(" ");
-}
-
 function excerpt(text, wordCount) {
   const words = tokenize(text);
   if (words.length <= wordCount) {
@@ -202,8 +198,37 @@ function extractReferenceEntryRecords(rawLines, referencesHeadingIndex) {
   return singleLineEntries;
 }
 
+let mammothModulePromise = null;
+let pdfParseModulePromise = null;
+
+function loadMammoth() {
+  mammothModulePromise ??= import("mammoth").catch((error) => {
+    mammothModulePromise = null;
+    throw error;
+  });
+
+  return mammothModulePromise;
+}
+
+function loadPdfParse() {
+  pdfParseModulePromise ??= import("pdf-parse").catch((error) => {
+    pdfParseModulePromise = null;
+    throw error;
+  });
+
+  return pdfParseModulePromise;
+}
+
+// Kicks both parser imports so a Lambda cold start absorbs the module-load
+// cost during init instead of the first user review. Failures reset the cache
+// so the next request retries lazily.
+export function warmParsers() {
+  loadMammoth().catch(() => {});
+  loadPdfParse().catch(() => {});
+}
+
 async function extractDocxRawText(buffer) {
-  const { default: mammoth } = await import("mammoth");
+  const { default: mammoth } = await loadMammoth();
   const result = await mammoth.extractRawText({ buffer });
 
   return {
@@ -215,7 +240,7 @@ async function extractDocxRawText(buffer) {
 }
 
 async function extractPdfRawText(buffer) {
-  const { PDFParse } = await import("pdf-parse");
+  const { PDFParse } = await loadPdfParse();
   const parser = new PDFParse({ data: buffer });
 
   try {
@@ -330,8 +355,4 @@ export function summarizeParsedDocument(parsedDocument) {
       references: excerpt(parsedDocument.referencesText, 50),
     },
   };
-}
-
-export function takeReferenceExcerpt(text, maxWords = 2500) {
-  return takeWords(text, maxWords);
 }

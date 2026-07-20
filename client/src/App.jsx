@@ -1,8 +1,9 @@
-import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import UploadPanel from "./components/UploadPanel.jsx";
 import StatusTimeline from "./components/StatusTimeline.jsx";
 import SectionCard from "./components/SectionCard.jsx";
 import ReportSummary from "./components/ReportSummary.jsx";
+import LlmActivityIndicator from "./components/LlmActivityIndicator.jsx";
 import {
   UnauthorizedError,
   getAuthSession,
@@ -18,7 +19,7 @@ const EMPTY_STREAM_STATE = {
   statusHistory: [],
   sections: {},
   report: null,
-  llmPreview: "",
+  llmPreviewLength: 0,
   error: "",
 };
 
@@ -101,21 +102,21 @@ export default function App() {
     };
   }, []);
 
-  function closeStream() {
+  const closeStream = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-  }
+  }, []);
 
-  function resetStreamState() {
+  const resetStreamState = useCallback(() => {
     terminalEventRef.current = false;
     closeStream();
     setStreamState(EMPTY_STREAM_STATE);
     setAppError("");
     setJobStatus("idle");
     setJobId("");
-  }
+  }, [closeStream]);
 
-  function handleFilePicked(file) {
+  const handleFilePicked = useCallback((file) => {
     const validationError = fileValidationError(file);
 
     if (validationError) {
@@ -127,7 +128,7 @@ export default function App() {
     setSelectedFile(file);
     setFileError("");
     setAppError("");
-  }
+  }, []);
 
   function applySnapshot(snapshot) {
     setJobStatus(snapshot.status);
@@ -145,7 +146,7 @@ export default function App() {
         .map((event) => event.payload),
       sections: Object.fromEntries((snapshot.sections || []).map((section) => [section.id, section])),
       report: snapshot.report || null,
-      llmPreview: snapshot.llmPreview || "",
+      llmPreviewLength: snapshot.llmPreview?.length ?? 0,
       error: snapshot.error?.message || "",
     });
 
@@ -154,7 +155,7 @@ export default function App() {
     }
   }
 
-  async function streamReview(fileToReview, controller) {
+  const streamReview = useCallback(async (fileToReview, controller) => {
     closeStream();
     abortControllerRef.current = controller;
 
@@ -188,11 +189,13 @@ export default function App() {
             }));
           });
         },
-        onLlmDelta: ({ llmPreview }) => {
+        onLlmDelta: ({ delta, previewLength }) => {
           startTransition(() => {
             setStreamState((previous) => ({
               ...previous,
-              llmPreview,
+              llmPreviewLength: Number.isFinite(previewLength)
+                ? previewLength
+                : previous.llmPreviewLength + (delta?.length ?? 0),
             }));
           });
         },
@@ -225,9 +228,9 @@ export default function App() {
         abortControllerRef.current = null;
       }
     }
-  }
+  }, [closeStream, reviewMode]);
 
-  async function handleRun() {
+  const handleRun = useCallback(async () => {
     const fileToReview = selectedFile;
     const validationError = fileValidationError(fileToReview);
 
@@ -275,7 +278,7 @@ export default function App() {
     } finally {
       setIsSubmitting(false);
     }
-  }
+  }, [resetStreamState, selectedFile, streamReview]);
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -431,11 +434,8 @@ export default function App() {
               </div>
             </section>
 
-            {streamState.llmPreview ? (
-              <details className="panel llm-panel">
-                <summary>LLM stream preview</summary>
-                <pre>{streamState.llmPreview}</pre>
-              </details>
+            {streamState.currentStage === "llm_review" && streamState.llmPreviewLength > 0 ? (
+              <LlmActivityIndicator charactersReceived={streamState.llmPreviewLength} />
             ) : null}
 
             {deferredReport ? (

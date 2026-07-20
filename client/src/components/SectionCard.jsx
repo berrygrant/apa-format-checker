@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { humanizeStatus } from "../lib/formatters.js";
 
 function scoreLabel(score) {
   return Number.isFinite(score) ? `${score}/100` : "Pending";
 }
 
-export default function SectionCard({ fallbackLabel, section, sectionId }) {
+export default memo(function SectionCard({ fallbackLabel, section, sectionId }) {
   const [isOpen, setIsOpen] = useState(sectionId === "llm");
 
   if (!section) {
@@ -73,4 +73,4 @@ export default function SectionCard({ fallbackLabel, section, sectionId }) {
       </div>
     </details>
   );
-}
+});

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { downloadComplianceDocx, downloadComplianceMarkdown, getComplianceIssues } from "../lib/reportExports.js";
 import { formatBytes, humanizeStatus } from "../lib/formatters.js";
 
-export default function ReportSummary({ report }) {
+export default memo(function ReportSummary({ report }) {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [exportError, setExportError] = useState("");
   const complianceIssueCount = getComplianceIssues(report).length;
@@ -126,4 +126,4 @@ export default function ReportSummary({ report }) {
       {exportError ? <p className="app-error">{exportError}</p> : null}
     </section>
   );
-}
+});
