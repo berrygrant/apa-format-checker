@@ -9,6 +9,11 @@ import multer from "multer";
 import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from "./lib/auth.js";
 import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PDF_MIME_TYPES, PORT } from "./lib/config.js";
 import { warmParsers } from "./lib/docxParser.js";
+import {
+  buildSnapshotFallbackEvents,
+  isEnabled as isJobSnapshotStoreEnabled,
+  loadSnapshot,
+} from "./lib/jobSnapshotStore.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
 import { getRequestMetricsSnapshot, recordReviewRequest } from "./lib/requestMetrics.js";
 import { normalizeReviewMode } from "./lib/reviewMode.js";
@@ -202,10 +207,28 @@ app.post("/api/review/stream", requireAppAuth, apiLimiter, upload.single("file")
   }
 });
 
-app.get("/api/review/stream/:jobId", requireAppAuth, (req, res) => {
+app.get("/api/review/stream/:jobId", requireAppAuth, async (req, res) => {
   const job = getJob(req.params.jobId);
 
   if (!job) {
+    // Each Lambda invocation is its own container, so a rejoin usually lands
+    // where the in-memory job never existed. When the snapshot store is
+    // enabled, replay the latest saved state instead of a 404.
+    if (isJobSnapshotStoreEnabled()) {
+      const snapshot = await loadSnapshot(req.params.jobId);
+
+      if (snapshot) {
+        initializeSse(res);
+
+        for (const event of buildSnapshotFallbackEvents(snapshot)) {
+          sendSseEvent(res, event);
+        }
+
+        res.end();
+        return;
+      }
+    }
+
     res.status(404).json({
       error: "Review job not found.",
     });
@@ -219,9 +242,28 @@ app.get("/api/review/stream/:jobId", requireAppAuth, (req, res) => {
     payload: serializeJob(job),
   });
 
+  if (job.status === "completed" || job.status === "failed") {
+    res.end();
+    return;
+  }
+
   const stopHeartbeat = startHeartbeat(res);
   const unsubscribe = subscribeToJob(job, (event) => {
-    sendSseEvent(res, event);
+    if (!res.destroyed && !res.writableEnded) {
+      sendSseEvent(res, event);
+    }
+
+    // The live job just reached a terminal event; end the stream so one-shot
+    // fetch readers (the client resume path) resolve instead of hanging on
+    // heartbeats.
+    if (event.type === "complete" || event.type === "review_error") {
+      unsubscribe();
+      stopHeartbeat();
+
+      if (!res.destroyed && !res.writableEnded) {
+        res.end();
+      }
+    }
   });
 
   req.on("close", () => {

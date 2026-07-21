@@ -126,6 +126,36 @@ export async function runReviewStream(file, reviewMode = "standard", handlers = 
   await readSseStream(response.body, handlers);
 }
 
+/**
+ * One-shot rejoin of an existing review stream by job id. Resolves true after
+ * the stream ends (the server replays a snapshot — plus live events when the
+ * job is still in memory — then closes), or false when the job is unknown.
+ */
+export async function resumeReviewStream(jobId, handlers = {}, options = {}) {
+  const response = await fetch(`/api/review/stream/${encodeURIComponent(jobId)}`, {
+    signal: options.signal,
+  });
+
+  if (response.status === 404) {
+    return false;
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!response.ok) {
+    const payload = contentType.includes("application/json") ? await parsePayload(response) : {};
+    throwIfUnauthorized(response, payload);
+    throw new Error(payload.error || "Unable to reconnect to the review stream.");
+  }
+
+  if (!response.body) {
+    throw new Error("The review stream did not return a readable response body.");
+  }
+
+  await readSseStream(response.body, handlers);
+  return true;
+}
+
 export async function getAuthSession() {
   const response = await fetch("/api/auth/session");
   const payload = await parsePayload(response);

@@ -17,6 +17,7 @@ export const REVIEW_MODES = [
 
 export const REVIEW_STAGES = [
   { id: "queued", label: "Queued" },
+  { id: "uploading", label: "Uploading document" },
   { id: "parsing_document", label: "Parsing document" },
   { id: "analyzing_layout", label: "Layout checks" },
   { id: "running_rule_checks", label: "Rule-based checks" },

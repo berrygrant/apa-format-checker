@@ -2,6 +2,28 @@ import { memo, useState } from "react";
 import { downloadComplianceDocx, downloadComplianceMarkdown, getComplianceIssues } from "../lib/reportExports.js";
 import { formatBytes, humanizeStatus } from "../lib/formatters.js";
 
+/**
+ * Opens every collapsed <details> in the report region (the raw-JSON panel is
+ * excluded — it is hidden in print anyway) and returns a restore function.
+ * CSS alone cannot reliably force closed <details> content to render in
+ * print, so the print button expands them for the duration of the dialog.
+ */
+function openReportDetailsForPrint() {
+  const closedDetails = Array.from(document.querySelectorAll(".results-column details:not(.json-panel)")).filter(
+    (node) => !node.open,
+  );
+
+  for (const node of closedDetails) {
+    node.open = true;
+  }
+
+  return () => {
+    for (const node of closedDetails) {
+      node.open = false;
+    }
+  };
+}
+
 export default memo(function ReportSummary({ report }) {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -30,6 +52,16 @@ export default memo(function ReportSummary({ report }) {
     }
   }
 
+  function handlePrint() {
+    const restoreDetails = openReportDetailsForPrint();
+
+    try {
+      window.print();
+    } finally {
+      restoreDetails();
+    }
+  }
+
   return (
     <section className="panel report-panel">
       <div className="panel-heading">
@@ -46,6 +78,9 @@ export default memo(function ReportSummary({ report }) {
           <span>{reviewModeLabel} mode. Download every warning/fail issue with its best-effort DOCX location as Markdown or Word.</span>
         </div>
         <div className="report-action-buttons">
+          <button className="secondary-button" onClick={handlePrint} type="button">
+            Print / Save PDF
+          </button>
           <button className="secondary-button" onClick={handleMarkdownDownload} type="button">
             Download .md
           </button>

@@ -31,6 +31,19 @@ Parameters:
   Timeout:
     Type: Number
     Default: 900
+  EnableJobSnapshotTable:
+    Type: String
+    AllowedValues:
+      - "false"
+      - "true"
+    Default: "false"
+    Description: >-
+      Create the DynamoDB job snapshot table and wire JOB_SNAPSHOT_TABLE into
+      the function so refresh/rejoin can replay the latest saved review state
+      across Lambda containers.
+
+Conditions:
+  JobSnapshotTableEnabled: !Equals [!Ref EnableJobSnapshotTable, "true"]
 
 Resources:
   LambdaExecutionRole:
@@ -46,6 +59,38 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  JobSnapshotTable:
+    Type: AWS::DynamoDB::Table
+    Condition: JobSnapshotTableEnabled
+    Properties:
+      TableName: !Sub "${FunctionName}-job-snapshots"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: jobId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: jobId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  JobSnapshotTablePolicy:
+    Type: AWS::IAM::Policy
+    Condition: JobSnapshotTableEnabled
+    Properties:
+      PolicyName: !Sub "${FunctionName}-job-snapshot-table"
+      Roles:
+        - !Ref LambdaExecutionRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+            Resource: !GetAtt JobSnapshotTable.Arn
 
   Function:
     Type: AWS::Lambda::Function
@@ -70,6 +115,7 @@ Resources:
           OPENAI_MODEL: !Ref OpenAIModel
           MAX_UPLOAD_BYTES: !Ref MaxUploadBytes
           JOB_TTL_MS: !Ref JobTtlMs
+          JOB_SNAPSHOT_TABLE: !If [JobSnapshotTableEnabled, !Ref JobSnapshotTable, !Ref AWS::NoValue]
           OPENAI_API_KEY: !Sub "{{resolve:secretsmanager:${SecretId}:SecretString:OPENAI_API_KEY}}"
           APP_PASSWORD: !Sub "{{resolve:secretsmanager:${SecretId}:SecretString:APP_PASSWORD}}"
           APP_SESSION_SECRET: !Sub "{{resolve:secretsmanager:${SecretId}:SecretString:APP_SESSION_SECRET}}"
@@ -168,3 +214,6 @@ Outputs:
     Value: !Sub "https://${DomainName}"
   ExecutionRoleArn:
     Value: !GetAtt LambdaExecutionRole.Arn
+  JobSnapshotTableName:
+    Condition: JobSnapshotTableEnabled
+    Value: !Ref JobSnapshotTable
