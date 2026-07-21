@@ -4,160 +4,160 @@
     "2026-03-31": 2,
     "2026-07-20": 5
   },
-  "updatedAt": "2026-07-21T23:22:57.166Z",
+  "updatedAt": "2026-07-21T23:24:42.998Z",
   "reviewOutcomes": {
     "days": {
       "2026-07-21": {
-        "runs": 1,
-        "runsWithAnyFail": 1,
+        "runs": 3,
+        "runsWithAnyFail": 3,
         "bySourceFormat": {
-          "docx": 1,
+          "docx": 3,
           "pdf": 0
         },
         "byMode": {
-          "standard": 1,
+          "standard": 3,
           "comprehensive": 0
         },
         "checkFailures": {
           "layout:default font not detected": {
             "title": "Default font not detected",
             "sectionId": "layout",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "layout:document does not appear double-spaced": {
             "title": "Document does not appear double-spaced",
             "sectionId": "layout",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "layout:first-line indents not consistently detected": {
             "title": "First-line indents not consistently detected",
             "sectionId": "layout",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "layout:no page-number field detected": {
             "title": "No page-number field detected",
             "sectionId": "layout",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "layout:no word heading styles detected": {
             "title": "No Word heading styles detected",
             "sectionId": "layout",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
               "warning": 0,
-              "info": 1
+              "info": 3
             }
           },
           "layout:title not detected as bold and centered": {
             "title": "Title not detected as bold and centered",
             "sectionId": "layout",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "document:limited extracted text": {
             "title": "Limited extracted text",
             "sectionId": "document",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "titlePage:sparse title-page text": {
             "title": "Sparse title-page text",
             "sectionId": "titlePage",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "titlePage:student title-page elements incomplete": {
             "title": "Student title-page elements incomplete",
             "sectionId": "titlePage",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "body:short body excerpt": {
             "title": "Short body excerpt",
             "sectionId": "body",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "body:few apa-style headings detected": {
             "title": "Few APA-style headings detected",
             "sectionId": "body",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "references:low reference count": {
             "title": "Low reference count",
             "sectionId": "references",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
               "fail": 0,
-              "warning": 1,
+              "warning": 3,
               "info": 0
             }
           },
           "references:doi does not resolve": {
             "title": "DOI does not resolve",
             "sectionId": "references",
-            "runsAffected": 1,
-            "occurrences": 1,
+            "runsAffected": 3,
+            "occurrences": 3,
             "severityTally": {
-              "fail": 1,
+              "fail": 3,
               "warning": 0,
               "info": 0
             }
