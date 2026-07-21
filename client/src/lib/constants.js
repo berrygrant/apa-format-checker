@@ -22,6 +22,7 @@ export const REVIEW_STAGES = [
   { id: "running_rule_checks", label: "Rule-based checks" },
   { id: "evaluating_citations", label: "Evaluating citations" },
   { id: "evaluating_references", label: "Evaluating references" },
+  { id: "verifying_references", label: "Verifying references" },
   { id: "llm_review", label: "OpenAI review" },
   { id: "finalizing", label: "Finalizing report" },
   { id: "completed", label: "Complete" },
