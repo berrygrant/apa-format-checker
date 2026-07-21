@@ -1,13 +1,14 @@
 import "dotenv/config";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from "./lib/auth.js";
 import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PDF_MIME_TYPES, PORT } from "./lib/config.js";
+import { annotateDocxWithIssues, sanitizeAnnotationIssues } from "./lib/docxComments.js";
 import { warmParsers } from "./lib/docxParser.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
 import { getRequestMetricsSnapshot, recordReviewRequest } from "./lib/requestMetrics.js";
@@ -199,6 +200,71 @@ app.post("/api/review/stream", requireAppAuth, apiLimiter, upload.single("file")
     if (!res.destroyed && !res.writableEnded) {
       res.end();
     }
+  }
+});
+
+function parseAnnotationIssues(rawIssues) {
+  if (typeof rawIssues !== "string" || !rawIssues.trim()) {
+    return null;
+  }
+
+  try {
+    return sanitizeAnnotationIssues(JSON.parse(rawIssues));
+  } catch {
+    return null;
+  }
+}
+
+app.post("/api/review/annotate", requireAppAuth, apiLimiter, upload.single("file"), async (req, res) => {
+  const fileError = validateUploadFile(req.file);
+
+  if (fileError) {
+    res.status(400).json({
+      error: fileError,
+    });
+    return;
+  }
+
+  if (extname(req.file.originalname ?? "").toLowerCase() !== ".docx") {
+    res.status(400).json({
+      error: "Annotated copies need the original .docx upload — PDF files cannot receive Word comments.",
+    });
+    return;
+  }
+
+  const issues = parseAnnotationIssues(req.body?.issues);
+
+  if (!issues) {
+    res.status(400).json({
+      error: "The issues field must be a JSON array of report issues.",
+    });
+    return;
+  }
+
+  try {
+    const { buffer, anchoredCount, unanchoredCount } = await annotateDocxWithIssues(req.file.buffer, issues);
+    const baseName = basename(req.file.originalname, extname(req.file.originalname)) || "document";
+
+    console.log(
+      JSON.stringify({
+        event: "annotate_request",
+        sizeBytes: req.file.size,
+        issueCount: issues.length,
+        anchoredCount,
+        unanchoredCount,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    res.setHeader("X-Annotated-Count", String(anchoredCount));
+    res.setHeader("X-Unanchored-Count", String(unanchoredCount));
+    res.attachment(`${baseName}-annotated.docx`);
+    res.type("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.send(buffer);
+  } catch (error) {
+    res.status(422).json({
+      error: error instanceof Error ? error.message : "Unable to annotate the document.",
+    });
   }
 });
 

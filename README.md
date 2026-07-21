@@ -79,6 +79,10 @@ Emits:
 - `complete` — `{ report }` with the final compliance JSON (version `3.1.0`)
 - `review_error`
 
+### `POST /api/review/annotate`
+
+Accepts multipart form data with the original `.docx` in `file` plus an `issues` field: a JSON array of report `issueInventory` items (max 200; only the string fields each issue needs are read). Returns a copy of the document with native Word comments anchored to the paragraphs matching each issue's excerpt, as a `.docx` attachment named `<original-basename>-annotated.docx`. The `X-Annotated-Count` and `X-Unanchored-Count` response headers report how many issues were (not) anchored. DOCX only — PDF uploads are rejected with `400`.
+
 ### `GET /api/review/stream/:jobId`
 
 Legacy local endpoint for jobs created through `POST /api/review` (same events as the streaming POST). The web client no longer uses this pair — cross-invocation resume on Lambda would require an external job store, so reconnecting mid-review restarts the run.
