@@ -5,6 +5,7 @@ import SectionCard from "./components/SectionCard.jsx";
 import ReportSummary from "./components/ReportSummary.jsx";
 import LlmActivityIndicator from "./components/LlmActivityIndicator.jsx";
 import IssueInventoryPanel from "./components/IssueInventoryPanel.jsx";
+import InsightsPanel from "./components/InsightsPanel.jsx";
 import {
   UnauthorizedError,
   getAuthSession,
@@ -54,6 +55,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [jobStatus, setJobStatus] = useState("idle");
   const [streamState, setStreamState] = useState(EMPTY_STREAM_STATE);
+  const [showInsights, setShowInsights] = useState(false);
   const [authState, setAuthState] = useState({
     enabled: false,
     authenticated: false,
@@ -281,6 +283,16 @@ export default function App() {
     }
   }, [resetStreamState, selectedFile, streamReview]);
 
+  const handleInsightsUnauthorized = useCallback((error) => {
+    setShowInsights(false);
+    setAuthState((previous) => ({
+      ...previous,
+      enabled: true,
+      authenticated: false,
+      error: error instanceof Error ? error.message : "Password authentication is required.",
+    }));
+  }, []);
+
   async function handleLogin(event) {
     event.preventDefault();
 
@@ -314,6 +326,7 @@ export default function App() {
     resetStreamState();
     setSelectedFile(null);
     setFileError("");
+    setShowInsights(false);
 
     try {
       await logoutSession();
@@ -350,9 +363,19 @@ export default function App() {
           </div>
 
           {authState.enabled && authState.authenticated ? (
-            <button className="secondary-button hero-action" onClick={handleLogout} type="button">
-              Sign Out
-            </button>
+            <div className="hero-actions">
+              <button
+                aria-pressed={showInsights}
+                className={`secondary-button hero-action ${showInsights ? "is-active" : ""}`}
+                onClick={() => setShowInsights((previous) => !previous)}
+                type="button"
+              >
+                Cohort insights
+              </button>
+              <button className="secondary-button hero-action" onClick={handleLogout} type="button">
+                Sign Out
+              </button>
+            </div>
           ) : null}
         </div>
         <div className="hero-contact">
@@ -408,6 +431,12 @@ export default function App() {
         </main>
       ) : (
         <main className="workspace">
+          {authState.enabled && authState.authenticated && showInsights ? (
+            <div className="insights-region">
+              <InsightsPanel onUnauthorized={handleInsightsUnauthorized} />
+            </div>
+          ) : null}
+
           <UploadPanel
             error={fileError}
             file={selectedFile}

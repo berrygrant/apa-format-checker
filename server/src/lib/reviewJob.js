@@ -14,6 +14,7 @@ import {
 import { runOpenAiReview } from "./openaiReview.js";
 import { buildFinalReport } from "./reportBuilder.js";
 import { appendLlmPreview, completeJob, failJob, setJobStage, upsertJobSection } from "./jobStore.js";
+import { recordReviewOutcome } from "./requestMetrics.js";
 
 function yieldToEventLoop() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -219,6 +220,16 @@ export async function processReviewJob(job, buffer) {
     });
 
     completeJob(job, finalReport);
+
+    // Fire-and-forget cohort analytics; a metrics failure must never surface
+    // in the review path (the job above is already completed).
+    try {
+      recordReviewOutcome(finalReport);
+    } catch (metricsError) {
+      console.warn(
+        `Failed to record review outcome metrics: ${metricsError instanceof Error ? metricsError.message : metricsError}`,
+      );
+    }
   } catch (error) {
     failJob(job, error);
   }

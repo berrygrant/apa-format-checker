@@ -51,6 +51,7 @@ npm run dev
 - `LLM_DELTA_FLUSH_MS`: Coalescing window for `llm_delta` stream events. Default `120`
 - `MAX_UPLOAD_BYTES`: Upload size limit for DOCX/PDF files. Default `3145728`
 - `JOB_TTL_MS`: How long completed jobs remain streamable. Default `3600000`
+- `REQUEST_METRICS_DIR`: Directory for the JSON request/insights counters. Default: `server-data/` locally, `/tmp/thesis-apa-formatter` on Lambda (ephemeral).
 - `APP_PASSWORD`: Optional shared password. If unset, the app remains open.
 - `APP_SESSION_SECRET`: Optional cookie-signing secret. Defaults to `APP_PASSWORD`.
 - `APP_AUTH_HOST`: Optional hostname scope for the password gate. Default example: `apa.lingviz.com`
@@ -82,6 +83,14 @@ Emits:
 ### `GET /api/review/stream/:jobId`
 
 Legacy local endpoint for jobs created through `POST /api/review` (same events as the streaming POST). The web client no longer uses this pair — cross-invocation resume on Lambda would require an external job store, so reconnecting mid-review restarts the run.
+
+### Instructor insights (`GET /api/metrics/insights`)
+
+Auth-gated (same password session as the review endpoints) cohort aggregates so an instructor can see which APA problems the class actually has. `?days=30` selects the window (clamped 1–120). Each completed review adds to per-day counters: run totals, source-format (`docx`/`pdf`) and review-mode splits, runs with at least one failure, and per-check tallies keyed by `sectionId:title` — how many runs each check affected (once per report), total occurrences, and a fail/warning/info severity breakdown. Signed-in instructors get a "Cohort insights" toggle in the app header that renders the top checks with runs-affected bars.
+
+Privacy posture: only check titles, section ids, severities, and counts are stored — never filenames, document text, excerpts, or any per-student identifier. Storage is bounded to 120 days and 150 distinct check keys per day.
+
+Caveat: the counters live in the same JSON store as the daily request metrics. On Lambda that store defaults to `/tmp` inside each container, so counts reset on cold starts and are not shared across concurrent containers unless `REQUEST_METRICS_DIR` points at a persistent mount — interpret the numbers as trends, not exact totals.
 
 ## Review Pipeline
 
