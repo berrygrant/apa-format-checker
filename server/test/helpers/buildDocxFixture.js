@@ -20,13 +20,23 @@ function toRuns(content, { bold = false } = {}) {
   return content;
 }
 
+function specRuns(spec) {
+  if (Array.isArray(spec.runs)) {
+    return spec.runs.map(
+      (run) => new TextRun({ text: run.text ?? "", italics: Boolean(run.italics), bold: Boolean(run.bold) }),
+    );
+  }
+
+  return toRuns(spec.text ?? "", { bold: spec.bold ?? false });
+}
+
 function buildParagraph(spec, defaults = {}) {
   if (typeof spec === "string") {
     spec = { text: spec };
   }
 
   const options = {
-    children: toRuns(spec.text ?? "", { bold: spec.bold ?? false }),
+    children: specRuns(spec),
   };
 
   if (spec.heading) {
@@ -54,8 +64,9 @@ function buildParagraph(spec, defaults = {}) {
  * Builds an in-memory DOCX buffer for tests.
  *
  * Options:
- * - paragraphs: Array<string | {text, bold, centered, heading, spacing, indent}>
- * - referenceEntries: Array<string> rendered after a "References" paragraph with hanging indents
+ * - paragraphs: Array<string | {text, bold, centered, heading, spacing, indent, runs}>
+ *   where runs is an Array<{text, italics, bold}> for run-level formatting
+ * - referenceEntries: Array<string | {text, runs}> rendered after a "References" paragraph with hanging indents
  * - margins: {top, right, bottom, left} in twips (default 1440 each)
  * - defaultFont / defaultSizePt: document-default run properties
  * - doubleSpaced: apply {line: 480, lineRule: "auto"} to body paragraphs
@@ -98,10 +109,11 @@ export async function buildDocxBuffer({
   if (referenceEntries.length > 0) {
     children.push(buildParagraph({ text: referencesLabel }, bodyDefaults));
     for (const entry of referenceEntries) {
+      const entrySpec = typeof entry === "string" ? { text: entry } : entry;
       children.push(
         buildParagraph(
           {
-            text: entry,
+            ...entrySpec,
             indent: hangingIndent ? { hanging: hangingIndent } : undefined,
             spacing: bodyDefaults.spacing,
           },

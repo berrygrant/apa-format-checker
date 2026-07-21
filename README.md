@@ -87,6 +87,7 @@ Legacy local endpoint for jobs created through `POST /api/review` (same events a
 
 1. Parse the uploaded DOCX or PDF into extracted text
 2. For DOCX uploads, measure layout directly from the file's XML: margins, default font and size, line spacing, first-line and hanging indents, page-number fields, Word heading styles, and title emphasis (`analyzing_layout` stage)
+   - The same extraction also collects run-level italics, used to check that statistical symbols (p, t, F, M, SD, ...) and reference-list journal/book titles are italicized
 3. Run local APA heuristics section by section — document structure, layout, title page, body/headings, citations, references — yielding to the event loop between sections so each `section` event streams as soon as it is computed
 4. Run one OpenAI structured-output review over labeled line/reference excerpts, the rule-based findings, and the measured layout facts
 5. Merge rule + model findings into a final report: duplicate AI findings fold into the matching rule item (`alsoFlaggedByLlm`), headline counts and the severity-weighted score derive from the deduplicated issue inventory, and the model's own score is reported separately as `summary.aiAssessment`

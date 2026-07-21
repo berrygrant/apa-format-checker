@@ -371,6 +371,51 @@ function paragraphHasPageBreak(paragraph) {
   return elems(paragraph, "br").some((breakElement) => wVal(breakElement, "type") === "page");
 }
 
+// Run-level facts feed the psychology-specific formatting checks (statistics
+// italics, reference-title italics). Only direct run formatting (w:i / w:b in
+// the run's rPr) is read; character-style italics are invisible here, which is
+// why downstream checks stay at warning severity. Oversized paragraphs are
+// skipped to keep the fact payload memory-sane.
+const RUN_FACTS_MAX_PARAGRAPH_CHARS = 4000;
+
+function collectRunFacts(paragraphs) {
+  const collected = [];
+
+  for (const paragraph of paragraphs) {
+    if (paragraph.text.length > RUN_FACTS_MAX_PARAGRAPH_CHARS) {
+      continue;
+    }
+
+    const runs = [];
+
+    for (const run of elems(paragraph.node, "r")) {
+      const text = elems(run, "t")
+        .map((textNode) => textNode.textContent ?? "")
+        .join("");
+
+      if (!text) {
+        continue;
+      }
+
+      const rPr = directChild(run, "rPr");
+      runs.push({
+        text,
+        italic: isFlagEnabled(directChild(rPr, "i")),
+        bold: isFlagEnabled(directChild(rPr, "b")),
+      });
+    }
+
+    // The paragraph text is rebuilt from the runs so character offsets in the
+    // text map exactly onto run boundaries.
+    collected.push({
+      text: runs.map((run) => run.text).join(""),
+      runs,
+    });
+  }
+
+  return collected;
+}
+
 function readTitlePage(documentDoc) {
   const body = firstElem(documentDoc, "body");
   const summaries = [];
@@ -438,5 +483,9 @@ export async function extractDocxLayout(buffer) {
     pageNumbering: readPageNumbering(headerFooterDocs),
     headingStyles: readHeadingStyles(paragraphs),
     titlePage: readTitlePage(documentDoc),
+    runs: {
+      mainParagraphs: collectRunFacts(mainParagraphs),
+      referenceParagraphs: collectRunFacts(referenceParagraphs),
+    },
   };
 }
