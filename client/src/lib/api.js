@@ -156,6 +156,18 @@ export async function loginWithPassword(password) {
   return payload;
 }
 
+export async function getCohortInsights(days = 30) {
+  const response = await fetch(`/api/metrics/insights?days=${encodeURIComponent(days)}`);
+  const payload = await parsePayload(response);
+  throwIfUnauthorized(response, payload);
+
+  if (!response.ok) {
+    throw new Error(payload.error || "Unable to load cohort insights.");
+  }
+
+  return payload;
+}
+
 export async function logoutSession() {
   const response = await fetch("/api/auth/logout", {
     method: "POST",

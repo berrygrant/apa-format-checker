@@ -10,7 +10,7 @@ import { getAuthSession, loginWithPassword, logoutSession, requireAppAuth } from
 import { DOCX_MIME_TYPES, MAX_UPLOAD_BYTES, PDF_MIME_TYPES, PORT } from "./lib/config.js";
 import { warmParsers } from "./lib/docxParser.js";
 import { createJob, getJob, serializeJob, subscribeToJob } from "./lib/jobStore.js";
-import { getRequestMetricsSnapshot, recordReviewRequest } from "./lib/requestMetrics.js";
+import { getInsightsSnapshot, getRequestMetricsSnapshot, recordReviewRequest } from "./lib/requestMetrics.js";
 import { normalizeReviewMode } from "./lib/reviewMode.js";
 import { initializeSse, sendSseEvent, startHeartbeat } from "./lib/sse.js";
 import { processReviewJob } from "./lib/reviewJob.js";
@@ -92,6 +92,12 @@ app.post("/api/auth/login", authLimiter, loginWithPassword);
 app.post("/api/auth/logout", logoutSession);
 app.get("/api/metrics/requests", requireAppAuth, (_req, res) => {
   res.json(getRequestMetricsSnapshot());
+});
+app.get("/api/metrics/insights", requireAppAuth, (req, res) => {
+  const parsedDays = Number.parseInt(String(req.query.days ?? ""), 10);
+  const days = Number.isFinite(parsedDays) ? Math.min(120, Math.max(1, parsedDays)) : 30;
+
+  res.json(getInsightsSnapshot({ days }));
 });
 
 function logReviewRequest(job, file, requestMetrics) {
