@@ -31,3 +31,6 @@ fixtures/private/
 samples/private/
 uploads/
 exports/
+
+# Claude Code agent worktrees (transient)
+.claude/worktrees/
