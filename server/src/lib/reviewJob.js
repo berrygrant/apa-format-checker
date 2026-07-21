@@ -11,9 +11,11 @@ import {
   extractCitationData,
   extractReferenceData,
 } from "./ruleChecks.js";
+import { applyVerificationToReferencesPart, verifyReferences } from "./referenceVerification.js";
 import { runOpenAiReview } from "./openaiReview.js";
 import { buildFinalReport } from "./reportBuilder.js";
 import { buildReviewCacheKey, reviewCache } from "./reviewCache.js";
+import { REFERENCE_VERIFICATION_ENABLED } from "./config.js";
 import { appendLlmPreview, completeJob, failJob, setJobStage, upsertJobSection } from "./jobStore.js";
 import { recordReviewOutcome } from "./requestMetrics.js";
 
@@ -142,7 +144,7 @@ function replayCachedReview(job, cachedReview) {
   });
 }
 
-export async function processReviewJob(job, buffer) {
+export async function processReviewJob(job, buffer, overrides = {}) {
   try {
     const cacheKey = buildReviewCacheKey(buffer, job.reviewMode);
     const cachedReview = reviewCache.get(cacheKey);
@@ -207,11 +209,30 @@ export async function processReviewJob(job, buffer) {
     await yieldToEventLoop();
 
     setJobStage(job, "evaluating_references", "Evaluating references...", 62);
-    const referencesPart = analyzeReferences(parsedDocument, citationData, referenceData);
-    parts.push(referencesPart);
+    let referencesPart = analyzeReferences(parsedDocument, citationData, referenceData);
     upsertJobSection(job, referencesPart.section);
     await yieldToEventLoop();
 
+    // CrossRef verification degrades exactly like the OpenAI stage: offline or
+    // disabled states surface as informational output and never fail the job.
+    const verificationOptions = overrides.referenceVerification ?? {};
+    const verificationEnabled =
+      (verificationOptions.enabled ?? REFERENCE_VERIFICATION_ENABLED) && referenceData.referencePairs.length > 0;
+    setJobStage(
+      job,
+      "verifying_references",
+      verificationEnabled ? "Verifying references against CrossRef..." : "Skipping reference verification...",
+      68,
+    );
+    const referenceVerification = await verifyReferences(referenceData.referencePairs, verificationOptions);
+
+    if (referenceVerification.status !== "skipped") {
+      referencesPart = applyVerificationToReferencesPart(referencesPart, referenceVerification, referenceData.referencePairs);
+      upsertJobSection(job, referencesPart.section);
+      await yieldToEventLoop();
+    }
+
+    parts.push(referencesPart);
     const ruleBasedReport = assembleRuleBasedReport({ parsedDocument, citationData, referenceData, parts });
 
     setJobStage(
@@ -244,6 +265,7 @@ export async function processReviewJob(job, buffer) {
       ruleBasedReport,
       layoutFacts: layoutPart.promptFacts,
       llmReview,
+      referenceVerification,
     });
 
     completeJob(job, finalReport);

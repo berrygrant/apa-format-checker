@@ -49,6 +49,10 @@ npm run dev
 - `OPENAI_TIMEOUT_MS`: Per-request OpenAI timeout. Default `240000`
 - `OPENAI_MAX_RETRIES`: OpenAI SDK retry count. Default `1`
 - `LLM_DELTA_FLUSH_MS`: Coalescing window for `llm_delta` stream events. Default `120`
+- `REFERENCE_VERIFICATION`: Set to `off` to disable the CrossRef reference verification stage. Default `on`
+- `CROSSREF_MAILTO`: Contact email sent as the `mailto` query param on CrossRef API requests (polite-pool etiquette). Default `berry.grant@gmail.com`
+- `CROSSREF_TIMEOUT_MS`: Per-request CrossRef timeout. Default `5000`
+- `CROSSREF_TOTAL_BUDGET_MS`: Overall time budget for the verification stage; lookups not started in time are reported as unchecked. Default `20000`
 - `MAX_UPLOAD_BYTES`: Upload size limit for DOCX/PDF files. Default `3145728`
 - `JOB_TTL_MS`: How long completed jobs remain streamable. Default `3600000`
 - `REQUEST_METRICS_DIR`: Directory for the JSON request/insights counters. Default: `server-data/` locally, `/tmp/thesis-apa-formatter` on Lambda (ephemeral).
@@ -78,7 +82,7 @@ Emits:
 - `status` — `{ stage, message, progress, level, timestamp }`
 - `section` — one APA section result as soon as it is computed
 - `llm_delta` — coalesced OpenAI output chunks: `{ delta, previewLength, timestamp }` (the accumulated text is intentionally **not** resent per event)
-- `complete` — `{ report }` with the final compliance JSON (version `3.1.0`)
+- `complete` — `{ report }` with the final compliance JSON (version `3.2.0`, including the top-level `referenceVerification` result)
 - `review_error`
 
 ### `GET /api/review/stream/:jobId`
@@ -98,8 +102,9 @@ Caveat: the counters live in the same JSON store as the daily request metrics. O
 1. Parse the uploaded DOCX or PDF into extracted text
 2. For DOCX uploads, measure layout directly from the file's XML: margins, default font and size, line spacing, first-line and hanging indents, page-number fields, Word heading styles, and title emphasis (`analyzing_layout` stage)
 3. Run local APA heuristics section by section — document structure, layout, title page, body/headings, citations, references — yielding to the event loop between sections so each `section` event streams as soon as it is computed
-4. Run one OpenAI structured-output review over labeled line/reference excerpts, the rule-based findings, and the measured layout facts
-5. Merge rule + model findings into a final report: duplicate AI findings fold into the matching rule item (`alsoFlaggedByLlm`), headline counts and the severity-weighted score derive from the deduplicated issue inventory, and the model's own score is reported separately as `summary.aiAssessment`
+4. Verify DOI-bearing reference entries against the public CrossRef API (`verifying_references` stage): unresolvable DOIs are flagged as likely fabricated or mistyped references, and year/title mismatches surface as warnings quoting what CrossRef reports. Entries without a DOI are not queried, and offline/timeout runs degrade to an informational note — the stage never fails the job
+5. Run one OpenAI structured-output review over labeled line/reference excerpts, the rule-based findings, and the measured layout facts
+6. Merge rule + model findings into a final report: duplicate AI findings fold into the matching rule item (`alsoFlaggedByLlm`), headline counts and the severity-weighted score derive from the deduplicated issue inventory, and the model's own score is reported separately as `summary.aiAssessment`
 
 ## Re-run Ergonomics
 
@@ -116,6 +121,7 @@ Caveat: the counters live in the same JSON store as the daily request metrics. O
 
 - Text-based checks come from extracted document text; layout checks (margins, font, spacing, indents, page numbers) are measured from DOCX stored settings and are unavailable for PDFs.
 - If `OPENAI_API_KEY` is missing, the application still completes using the rule-based report and flags the LLM stage as skipped.
+- Reference verification only covers entries containing a DOI; when CrossRef is unreachable (or `REFERENCE_VERIFICATION=off`), the review completes normally with the verification reported as unavailable or skipped.
 - In production, the Express server will serve `client/dist` automatically after the frontend build exists.
 - If `APP_PASSWORD` is set, the UI shows a password screen and the review endpoints require a valid auth cookie. If `APP_AUTH_HOST` is set, that gate only activates on that hostname.
 

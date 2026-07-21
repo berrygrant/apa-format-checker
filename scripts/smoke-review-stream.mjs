@@ -208,6 +208,15 @@ async function readReviewStream(body) {
     throw new Error("Final report is missing the issueInventory array.");
   }
 
+  // Reference verification must degrade gracefully: any status is acceptable
+  // offline ("skipped", "unavailable", or a zero-lookup "completed"), but the
+  // result object itself has to be present in the report.
+  const verificationStatus = finalReport.referenceVerification?.status;
+
+  if (!["completed", "skipped", "unavailable"].includes(verificationStatus)) {
+    throw new Error(`Final report is missing a valid referenceVerification result (saw ${verificationStatus}).`);
+  }
+
   const layoutSection = finalReport.ruleBased.sections.find((section) => section.id === "layout");
 
   if (!layoutSection) {

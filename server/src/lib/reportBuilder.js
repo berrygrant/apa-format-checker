@@ -4,7 +4,7 @@ import { computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
 // Version of the final compliance report payload. It participates in the
 // review-cache key, so bumping it invalidates cached reports built by an
 // older report shape.
-export const REPORT_VERSION = "3.1.0";
+export const REPORT_VERSION = "3.2.0";
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
@@ -146,7 +146,27 @@ function buildLlmItems(llmReview) {
   );
 }
 
-export function buildFinalReport({ job, parsedDocument, ruleBasedReport, layoutFacts = { available: false }, llmReview }) {
+const SKIPPED_REFERENCE_VERIFICATION = {
+  status: "skipped",
+  checked: 0,
+  verified: 0,
+  mismatched: 0,
+  unresolved: 0,
+  errored: 0,
+  totalEntries: 0,
+  withoutDoi: 0,
+  results: [],
+  message: "Reference verification did not run.",
+};
+
+export function buildFinalReport({
+  job,
+  parsedDocument,
+  ruleBasedReport,
+  layoutFacts = { available: false },
+  llmReview,
+  referenceVerification = SKIPPED_REFERENCE_VERIFICATION,
+}) {
   const reviewModeConfig = getReviewModeConfig(job.reviewMode);
   const llmStatus = llmReview.report?.overallStatus ?? null;
   const overallStatus = combineStatus(ruleBasedReport.summary.overallStatus, llmStatus);
@@ -223,6 +243,7 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, layoutF
       limitations: llmReview.report?.limitations ?? [],
       streamedTextPreview: llmReview.rawText.slice(0, 4000),
     },
+    referenceVerification,
     priorityActions,
     issueInventory,
     crossChecks: ruleBasedReport.crossChecks,

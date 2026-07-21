@@ -137,7 +137,8 @@ test("the skipped-LLM path keeps rule-only counts and no AI assessment", () => {
   const report = buildFinalReport({ job: JOB, parsedDocument, ruleBasedReport, llmReview: SKIPPED_LLM });
   const ruleCounts = countByStatus(ruleBasedReport.itemIssues);
 
-  assert.equal(report.version, "3.1.0");
+  assert.equal(report.version, "3.2.0");
+  assert.equal(report.referenceVerification.status, "skipped");
   assert.equal(report.summary.failCount, ruleCounts.fail);
   assert.equal(report.summary.warningCount, ruleCounts.warning);
   assert.equal(report.summary.aiAssessment, null);
