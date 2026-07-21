@@ -11,6 +11,7 @@ import {
   getAuthSession,
   loginWithPassword,
   logoutSession,
+  resumeReviewStream,
   runReviewStream,
 } from "./lib/api.js";
 import { MAX_UPLOAD_BYTES, REVIEW_MODES, REVIEW_STAGES, SECTION_SLOTS, SUPPORTED_EXTENSIONS } from "./lib/constants.js";
@@ -67,9 +68,13 @@ function fileValidationError(file) {
   return "";
 }
 
+const STREAM_CLOSED_EARLY_MESSAGE = "The review stream closed before the review finished.";
+const STREAM_RESUMED_PARTIAL_MESSAGE = "Connection dropped; showing the latest saved progress. Re-run to finish.";
+
 export default function App() {
   const abortControllerRef = useRef(null);
   const terminalEventRef = useRef(false);
+  const jobIdRef = useRef("");
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [reviewMode, setReviewMode] = useState(REVIEW_MODES[0].id);
@@ -142,6 +147,7 @@ export default function App() {
 
   const resetStreamState = useCallback(() => {
     terminalEventRef.current = false;
+    jobIdRef.current = "";
     closeStream();
     setStreamState(EMPTY_STREAM_STATE);
     setRunDiff(null);
@@ -189,83 +195,158 @@ export default function App() {
     }
   }
 
+  function applyStreamErrorEvent(payload) {
+    const message = payload?.error?.message || "Review failed.";
+
+    terminalEventRef.current = true;
+    startTransition(() => {
+      setJobStatus("failed");
+      setAppError(message);
+      setStreamState((previous) => ({
+        ...previous,
+        currentStage: "failed",
+        error: message,
+      }));
+    });
+  }
+
+  function buildStreamHandlers(overrides = {}) {
+    return {
+      onSnapshot: (snapshot) => {
+        jobIdRef.current = snapshot.jobId || "";
+        startTransition(() => {
+          setJobId(snapshot.jobId || "");
+          applySnapshot(snapshot);
+        });
+      },
+      onStatus: (payload) => {
+        startTransition(() => {
+          setJobStatus(payload.stage === "completed" ? "completed" : "processing");
+          setStreamState((previous) => ({
+            ...previous,
+            currentStage: payload.stage,
+            progress: Number.isFinite(payload.progress) ? payload.progress : previous.progress,
+            statusHistory: [...previous.statusHistory, payload].slice(-20),
+          }));
+        });
+      },
+      onSection: ({ section }) => {
+        startTransition(() => {
+          setStreamState((previous) => ({
+            ...previous,
+            sections: {
+              ...previous.sections,
+              [section.id]: section,
+            },
+          }));
+        });
+      },
+      onLlmDelta: ({ delta, previewLength }) => {
+        startTransition(() => {
+          setStreamState((previous) => ({
+            ...previous,
+            llmPreviewLength: Number.isFinite(previewLength)
+              ? previewLength
+              : previous.llmPreviewLength + (delta?.length ?? 0),
+          }));
+        });
+      },
+      onComplete: ({ report }) => {
+        terminalEventRef.current = true;
+        // Diff against the previous stored run before saving this one.
+        const diff = computeRunDiff(report);
+        startTransition(() => {
+          setJobStatus("completed");
+          setRunDiff(diff);
+          setStreamState((previous) => ({
+            ...previous,
+            currentStage: "completed",
+            report,
+          }));
+        });
+      },
+      onErrorEvent: applyStreamErrorEvent,
+      ...overrides,
+    };
+  }
+
   const streamReview = useCallback(async (fileToReview, controller) => {
     closeStream();
     abortControllerRef.current = controller;
 
     try {
-      await runReviewStream(fileToReview, reviewMode, {
-        onSnapshot: (snapshot) => {
-          startTransition(() => {
-            setJobId(snapshot.jobId || "");
-            applySnapshot(snapshot);
-          });
-        },
-        onStatus: (payload) => {
-          startTransition(() => {
-            setJobStatus(payload.stage === "completed" ? "completed" : "processing");
-            setStreamState((previous) => ({
-              ...previous,
-              currentStage: payload.stage,
-              progress: Number.isFinite(payload.progress) ? payload.progress : previous.progress,
-              statusHistory: [...previous.statusHistory, payload].slice(-20),
-            }));
-          });
-        },
-        onSection: ({ section }) => {
-          startTransition(() => {
-            setStreamState((previous) => ({
-              ...previous,
-              sections: {
-                ...previous.sections,
-                [section.id]: section,
-              },
-            }));
-          });
-        },
-        onLlmDelta: ({ delta, previewLength }) => {
-          startTransition(() => {
-            setStreamState((previous) => ({
-              ...previous,
-              llmPreviewLength: Number.isFinite(previewLength)
-                ? previewLength
-                : previous.llmPreviewLength + (delta?.length ?? 0),
-            }));
-          });
-        },
-        onComplete: ({ report }) => {
-          terminalEventRef.current = true;
-          // Diff against the previous stored run before saving this one.
-          const diff = computeRunDiff(report);
-          startTransition(() => {
-            setJobStatus("completed");
-            setRunDiff(diff);
-            setStreamState((previous) => ({
-              ...previous,
-              currentStage: "completed",
-              report,
-            }));
-          });
-        },
-        onErrorEvent: ({ error }) => {
-          terminalEventRef.current = true;
-          startTransition(() => {
-            setJobStatus("failed");
-            setAppError(error?.message || "Review failed.");
-            setStreamState((previous) => ({
-              ...previous,
-              currentStage: "failed",
-              error: error?.message || "Review failed.",
-            }));
-          });
-        },
-      }, { signal: controller.signal });
+      await runReviewStream(fileToReview, reviewMode, buildStreamHandlers(), { signal: controller.signal });
     } finally {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
     }
   }, [closeStream, reviewMode]);
+
+  // The POST stream ended without a terminal event (dropped connection, LB
+  // timeout, container recycle). Try one GET rejoin by job id: with the
+  // snapshot store enabled, another container replays the latest saved state;
+  // in local dev the same server continues streaming the in-memory job.
+  const resumeAfterStreamDrop = useCallback(async () => {
+    const jobId = jobIdRef.current;
+
+    const showClosedEarlyError = () => {
+      setJobStatus("failed");
+      setAppError(STREAM_CLOSED_EARLY_MESSAGE);
+    };
+
+    if (!jobId) {
+      showClosedEarlyError();
+      return;
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    let sawSnapshot = false;
+
+    const handlers = buildStreamHandlers({
+      onSnapshot: (snapshot) => {
+        sawSnapshot = true;
+        startTransition(() => {
+          applySnapshot(snapshot);
+        });
+      },
+      onErrorEvent: (payload) => {
+        // The server marks the synthetic "saved state only" review_error with
+        // interrupted: true; a softer message is applied after the stream
+        // ends. Genuine failures keep the normal handling.
+        if (!payload?.interrupted) {
+          applyStreamErrorEvent(payload);
+        }
+      },
+    });
+
+    try {
+      const found = await resumeReviewStream(jobId, handlers, { signal: controller.signal });
+
+      if (found && terminalEventRef.current) {
+        return;
+      }
+
+      if (found && sawSnapshot) {
+        setJobStatus("failed");
+        setAppError(STREAM_RESUMED_PARTIAL_MESSAGE);
+        return;
+      }
+
+      showClosedEarlyError();
+    } catch (error) {
+      if (error.name === "AbortError") {
+        return;
+      }
+
+      showClosedEarlyError();
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
+    }
+  }, []);
 
   const handleRun = useCallback(async () => {
     const fileToReview = selectedFile;
@@ -282,8 +363,8 @@ export default function App() {
     setJobStatus("processing");
     setStreamState({
       ...EMPTY_STREAM_STATE,
-      currentStage: "queued",
-      progress: 2,
+      currentStage: "uploading",
+      progress: 4,
     });
 
     try {
@@ -291,7 +372,7 @@ export default function App() {
       await streamReview(fileToReview, controller);
 
       if (!terminalEventRef.current) {
-        setAppError("The review stream closed before the review finished.");
+        await resumeAfterStreamDrop();
       }
     } catch (error) {
       if (error.name === "AbortError") {
@@ -315,7 +396,7 @@ export default function App() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [resetStreamState, selectedFile, streamReview]);
+  }, [resetStreamState, resumeAfterStreamDrop, selectedFile, streamReview]);
 
   const handleInsightsUnauthorized = useCallback((error) => {
     setShowInsights(false);

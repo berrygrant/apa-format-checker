@@ -17,6 +17,7 @@ export const REVIEW_MODES = [
 
 export const REVIEW_STAGES = [
   { id: "queued", label: "Queued" },
+  { id: "uploading", label: "Uploading document" },
   // Optional stage: only cached replays of a byte-identical upload pass
   // through it, so the timeline hides the pill on normal runs.
   { id: "cache_replay", label: "Cached result", optional: true },

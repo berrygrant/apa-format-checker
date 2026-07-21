@@ -14,6 +14,7 @@ function readOnOffFlag(name, fallback) {
 
 export const MAX_UPLOAD_BYTES = readPositiveInteger("MAX_UPLOAD_BYTES", 3 * 1024 * 1024);
 export const JOB_TTL_MS = readPositiveInteger("JOB_TTL_MS", 60 * 60 * 1000);
+export const JOB_SNAPSHOT_TABLE = readString("JOB_SNAPSHOT_TABLE");
 export const PORT = readPositiveInteger("PORT", 3001);
 export const OPENAI_MODEL = readString("OPENAI_MODEL", "gpt-5-mini");
 export const OPENAI_TIMEOUT_MS = readPositiveInteger("OPENAI_TIMEOUT_MS", 240 * 1000);

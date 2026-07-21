@@ -1420,4 +1420,183 @@ select {
   color: #5d4c20;
   font-size: 0.9rem;
   line-height: 1.6;
+
+/* Print / save-as-PDF: report content only, flat white, expanded details. */
+@media print {
+  :root {
+    --bg: #ffffff;
+    --bg-elevated: #ffffff;
+    --surface: #ffffff;
+    --surface-strong: #ffffff;
+    --ink: #000000;
+    --muted: #333333;
+    --line: #b3b3b3;
+    --accent: #000000;
+    --accent-soft: transparent;
+    --gold: #4a4a4a;
+    --gold-soft: transparent;
+    --warn: #000000;
+    --fail: #000000;
+    --pass: #000000;
+    --shadow: none;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000;
+  }
+
+  .app-shell {
+    overflow: visible;
+    padding: 0;
+  }
+
+  /* Screen-only chrome: inputs, progress, buttons, decoration, raw JSON. */
+  .background-orbit,
+  .hero-contact,
+  .hero-action,
+  .upload-panel,
+  .timeline-panel,
+  .llm-activity-panel,
+  .report-placeholder-panel,
+  .sections-empty-state,
+  .placeholder-lines,
+  .json-panel,
+  .report-actions,
+  .issues-controls,
+  .issue-copy-button,
+  .disclosure-indicator,
+  .primary-button,
+  .secondary-button {
+    display: none !important;
+  }
+
+  .hero {
+    margin-bottom: 18px;
+    padding: 0 0 12px;
+    border: none;
+    border-bottom: 1px solid #b3b3b3;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .hero .eyebrow {
+    color: #4a4a4a;
+  }
+
+  .hero h1 {
+    color: #000000;
+    font-size: 1.9rem;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+
+  .hero p {
+    color: #333333;
+    font-size: 0.95rem;
+  }
+
+  .workspace,
+  .auth-workspace {
+    display: block;
+    width: 100%;
+    max-width: none;
+  }
+
+  .results-column {
+    display: block;
+  }
+
+  .results-column > * {
+    margin: 0 0 18px;
+  }
+
+  .panel,
+  .section-card,
+  .issue-card,
+  .summary-card,
+  .status-log-row {
+    background: #ffffff !important;
+    border-color: #c6c6c6;
+    box-shadow: none !important;
+    backdrop-filter: none;
+    animation: none;
+  }
+
+  .panel {
+    border-radius: 10px;
+  }
+
+  .sections-grid {
+    display: block;
+  }
+
+  .sections-grid > * {
+    margin-bottom: 12px;
+  }
+
+  .section-card,
+  .issue-card,
+  .summary-card,
+  .finding-row,
+  .status-log-row {
+    break-inside: avoid;
+  }
+
+  .section-card {
+    overflow: visible;
+  }
+
+  .summary-card strong {
+    color: #000000;
+  }
+
+  .status-pill {
+    border: 1px solid #8a8a8a;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .finding-marker {
+    border: 1px solid #000000;
+  }
+
+  .issue-source-badge {
+    border: 1px solid #b3b3b3;
+  }
+
+  /* Expand every disclosure so the printed report is complete. The print
+     button opens them via the DOM before window.print(); this block is the
+     CSS best-effort fallback for browsers that honor it on plain Ctrl+P. */
+  details {
+    display: block;
+  }
+
+  details > *:not(summary) {
+    display: block !important;
+  }
+
+  summary {
+    cursor: default;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .issue-evidence p {
+    border-left-color: #8a8a8a;
+  }
+
+  a {
+    color: #000000;
+    text-decoration: underline;
+  }
 }

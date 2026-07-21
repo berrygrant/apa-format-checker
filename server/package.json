@@ -9,6 +9,8 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1092.0",
+    "@aws-sdk/lib-dynamodb": "^3.1092.0",
     "@xmldom/xmldom": "^0.8.10",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

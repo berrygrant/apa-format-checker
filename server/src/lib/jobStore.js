@@ -1,4 +1,5 @@
 import { JOB_TTL_MS, LLM_DELTA_FLUSH_MS } from "./config.js";
+import { scheduleSnapshotSave } from "./jobSnapshotStore.js";
 
 const jobs = new Map();
 const TERMINAL_STATES = new Set(["completed", "failed"]);
@@ -106,6 +107,8 @@ export function setJobStage(job, stage, message, progress, level = "info") {
     },
     { persist: true },
   );
+
+  scheduleSnapshotSave(job);
 }
 
 export function upsertJobSection(job, section) {
@@ -120,6 +123,8 @@ export function upsertJobSection(job, section) {
     },
     { persist: true },
   );
+
+  scheduleSnapshotSave(job);
 }
 
 function flushLlmPreview(job) {
@@ -195,6 +200,8 @@ export function completeJob(job, report) {
     },
     { persist: false },
   );
+
+  scheduleSnapshotSave(job, { immediate: true });
 }
 
 export function failJob(job, error) {
@@ -214,6 +221,8 @@ export function failJob(job, error) {
     },
     { persist: false },
   );
+
+  scheduleSnapshotSave(job, { immediate: true });
 }
 
 function cleanupExpiredJobs() {

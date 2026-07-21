@@ -59,6 +59,25 @@ The secret must contain these JSON keys:
 
 Optional tuning variables (defaults are set in code; override via the template if needed): `OPENAI_TIMEOUT_MS` (240000), `OPENAI_MAX_RETRIES` (1), and `LLM_DELTA_FLUSH_MS` (120) — the coalescing window for `llm_delta` SSE events.
 
+## Job snapshot table (optional)
+
+Each Lambda invocation is its own container, so the in-memory job store never survives a dropped `POST /api/review/stream` connection: a refresh or rejoin lands on a container that has never heard of the job. The optional DynamoDB job snapshot table closes that gap.
+
+What it enables:
+
+- While a review runs, the server debounce-saves the serialized job snapshot (stage, sections, LLM preview, final report) to DynamoDB, with an immediate save on completion or failure.
+- `GET /api/review/stream/:jobId` falls back to the stored snapshot when the job is not in memory: it replays a `snapshot` event, then ends cleanly for completed/failed jobs, or ends with an "interrupted" `review_error` for jobs that were still mid-review.
+- The client uses this automatically: when the streaming POST drops before a terminal event, it fetches the job stream once by id. A completed report renders normally after the drop; a mid-review snapshot renders with a "Connection dropped; showing the latest saved progress. Re-run to finish." notice.
+
+What it does NOT do:
+
+- It cannot live-resume an in-flight stream across containers. The OpenAI call runs inside the original invocation; another container can only show the latest saved state, never re-attach to the running review. If the original invocation itself is killed, the review stops and only the last saved snapshot remains.
+
+How to enable:
+
+1. Deploy the stack with `EnableJobSnapshotTable=true` (set the GitHub `production` environment variable `ENABLE_JOB_SNAPSHOT_TABLE=true`, or pass the parameter override to `aws cloudformation deploy`). This creates the `<FunctionName>-job-snapshots` table (PAY_PER_REQUEST, partition key `jobId`, TTL on `expiresAt`), grants the execution role `dynamodb:GetItem`/`PutItem` on it, and sets `JOB_SNAPSHOT_TABLE` in the function environment.
+2. Nothing else is required. Snapshots expire with the existing `JOB_TTL_MS` (default 1 hour) via DynamoDB TTL; snapshots over 300 KB are stored gzipped+base64. With the parameter left at `"false"` (the default) the table, policy, and env var are absent and the server keeps its in-memory-only behavior.
+
 ## GitHub environment variables
 
 Create or update the GitHub `production` environment variables:
