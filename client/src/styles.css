@@ -831,6 +831,12 @@ select {
   flex-wrap: wrap;
 }
 
+.annotation-note {
+  margin: -10px 0 20px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .report-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

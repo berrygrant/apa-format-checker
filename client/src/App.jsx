@@ -522,8 +522,13 @@ export default function App() {
 
             {deferredReport ? (
               <>
+<<<<<<< HEAD
                 <ReportSummary report={deferredReport} runDiff={runDiff} />
                 <IssueInventoryPanel addedIdentities={addedIdentities} report={deferredReport} />
+=======
+                <ReportSummary report={deferredReport} runDiff={runDiff} sourceFile={selectedFile} />
+                <IssueInventoryPanel report={deferredReport} />
+>>>>>>> worktree-agent-a32e3f473a6fa73a8
 
                 <details className="panel json-panel">
                   <summary>Raw APA compliance JSON</summary>

@@ -1,13 +1,31 @@
 import { memo, useState } from "react";
-import { downloadComplianceDocx, downloadComplianceMarkdown, getComplianceIssues } from "../lib/reportExports.js";
+import { annotateDocument } from "../lib/api.js";
+import { downloadComplianceDocx, downloadComplianceMarkdown, getComplianceIssues, triggerDownload } from "../lib/reportExports.js";
 import { formatBytes, humanizeStatus } from "../lib/formatters.js";
 import { summarizeDiff } from "../lib/reportDiff.js";
 
-export default memo(function ReportSummary({ report, runDiff = null }) {
+function getAnnotatableIssues(report) {
+  return (Array.isArray(report.issueInventory) ? report.issueInventory : []).filter(
+    (issue) =>
+      (issue.status === "warning" || issue.status === "fail") && Boolean(issue.location?.excerpt || issue.evidence),
+  );
+}
+
+export default memo(function ReportSummary({ report, runDiff = null, sourceFile = null }) {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
+  const [isAnnotating, setIsAnnotating] = useState(false);
+  const [annotationNote, setAnnotationNote] = useState("");
   const [exportError, setExportError] = useState("");
   const complianceIssueCount = getComplianceIssues(report).length;
   const reviewModeLabel = report.review?.label || "Standard";
+  const annotatableIssues = getAnnotatableIssues(report);
+  // Only offer in-document comments while the original DOCX is still the one
+  // this report was generated from.
+  const canAnnotate =
+    report.document.sourceFormat === "docx" &&
+    Boolean(sourceFile) &&
+    sourceFile.name === report.document.filename &&
+    sourceFile.size === report.document.sizeBytes;
 
   function handleMarkdownDownload() {
     try {
@@ -28,6 +46,28 @@ export default memo(function ReportSummary({ report, runDiff = null }) {
       setExportError(error instanceof Error ? error.message : "Unable to download DOCX report.");
     } finally {
       setIsExportingDocx(false);
+    }
+  }
+
+  async function handleAnnotatedDownload() {
+    setIsAnnotating(true);
+    setExportError("");
+    setAnnotationNote("");
+
+    try {
+      const { blob, anchoredCount, unanchoredCount } = await annotateDocument(sourceFile, annotatableIssues);
+      const baseName = sourceFile.name.replace(/\.docx$/i, "") || "document";
+
+      triggerDownload(blob, `${baseName}-annotated.docx`);
+      setAnnotationNote(
+        `${anchoredCount} comment${anchoredCount === 1 ? "" : "s"} anchored; ${unanchoredCount} issue${
+          unanchoredCount === 1 ? "" : "s"
+        } could not be anchored (see the report list).`,
+      );
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Unable to build the annotated document.");
+    } finally {
+      setIsAnnotating(false);
     }
   }
 
@@ -71,8 +111,20 @@ export default memo(function ReportSummary({ report, runDiff = null }) {
           <button className="primary-button" disabled={isExportingDocx} onClick={handleDocxDownload} type="button">
             {isExportingDocx ? "Building .docx..." : "Download .docx"}
           </button>
+          {canAnnotate ? (
+            <button
+              className="secondary-button"
+              disabled={isAnnotating || annotatableIssues.length === 0}
+              onClick={handleAnnotatedDownload}
+              type="button"
+            >
+              {isAnnotating ? "Annotating..." : "Download annotated .docx"}
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {annotationNote ? <p className="annotation-note">{annotationNote}</p> : null}
 
       <div className="summary-grid">
         <div className="summary-card">
