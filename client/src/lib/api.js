@@ -126,6 +126,35 @@ export async function runReviewStream(file, reviewMode = "standard", handlers = 
   await readSseStream(response.body, handlers);
 }
 
+function readCountHeader(response, name) {
+  const value = Number.parseInt(response.headers.get(name) ?? "", 10);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+export async function annotateDocument(file, issues) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("issues", JSON.stringify(issues ?? []));
+
+  const response = await fetch("/api/review/annotate", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json") ? await parsePayload(response) : {};
+    throwIfUnauthorized(response, payload);
+    throw new Error(payload.error || "Unable to build the annotated document.");
+  }
+
+  return {
+    blob: await response.blob(),
+    anchoredCount: readCountHeader(response, "X-Annotated-Count"),
+    unanchoredCount: readCountHeader(response, "X-Unanchored-Count"),
+  };
+}
+
 export async function getAuthSession() {
   const response = await fetch("/api/auth/session");
   const payload = await parsePayload(response);

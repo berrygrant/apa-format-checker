@@ -459,7 +459,7 @@ export default function App() {
 
             {deferredReport ? (
               <>
-                <ReportSummary report={deferredReport} />
+                <ReportSummary report={deferredReport} sourceFile={selectedFile} />
                 <IssueInventoryPanel report={deferredReport} />
 
                 <details className="panel json-panel">
