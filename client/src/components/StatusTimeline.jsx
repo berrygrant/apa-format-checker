@@ -2,7 +2,12 @@ import { memo } from "react";
 import { formatTimestamp } from "../lib/formatters.js";
 
 export default memo(function StatusTimeline({ currentStage, history, progress, stages, idle = false }) {
-  const currentIndex = stages.findIndex((stage) => stage.id === currentStage);
+  // Optional stages (e.g. the cached-result replay) only earn a pill when the
+  // current run actually passed through them.
+  const visibleStages = stages.filter(
+    (stage) => !stage.optional || stage.id === currentStage || history.some((item) => item.stage === stage.id),
+  );
+  const currentIndex = visibleStages.findIndex((stage) => stage.id === currentStage);
   const latestUpdate = history.at(-1);
   const clampedProgress = Math.max(0, Math.min(100, Math.round(progress || 0)));
 
@@ -33,7 +38,7 @@ export default memo(function StatusTimeline({ currentStage, history, progress, s
       </div>
 
       <div className="step-pills">
-        {stages.map((stage, index) => {
+        {visibleStages.map((stage, index) => {
           const isComplete = currentIndex > index || currentStage === "completed";
           const isActive = currentIndex === index && currentStage !== "completed";
 

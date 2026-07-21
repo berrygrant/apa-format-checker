@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { humanizeStatus } from "../lib/formatters.js";
+import { issueIdentity } from "../lib/reportDiff.js";
 
 const SEVERITY_FILTERS = [
   { id: "all", label: "All" },
@@ -28,7 +29,7 @@ function formatIssueForClipboard(issue) {
     .join("\n");
 }
 
-function IssueCard({ issue }) {
+function IssueCard({ issue, isNew = false }) {
   const [copyState, setCopyState] = useState("idle");
 
   async function handleCopy() {
@@ -47,6 +48,7 @@ function IssueCard({ issue }) {
       <div className="issue-card-header">
         <span className={`status-pill ${issue.status}`}>{humanizeStatus(issue.status)}</span>
         <span className="issue-source-badge">{sourceBadge(issue)}</span>
+        {isNew ? <span className="issue-new-badge">New</span> : null}
         <button className="issue-copy-button" onClick={handleCopy} type="button">
           {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy"}
         </button>
@@ -67,7 +69,7 @@ function IssueCard({ issue }) {
   );
 }
 
-export default memo(function IssueInventoryPanel({ report }) {
+export default memo(function IssueInventoryPanel({ report, addedIdentities = null }) {
   const [severityFilter, setSeverityFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
 
@@ -75,6 +77,19 @@ export default memo(function IssueInventoryPanel({ report }) {
     () => (report.issueInventory ?? []).filter((issue) => issue.status !== "pass"),
     [report],
   );
+
+  // Pair each issue with its stable identity once, so the "new since last
+  // run" chip and badges never recompute identities per render.
+  const issueEntries = useMemo(
+    () =>
+      issues.map((issue) => ({
+        issue,
+        isNew: Boolean(addedIdentities?.has(issueIdentity(issue))),
+      })),
+    [issues, addedIdentities],
+  );
+
+  const newCount = useMemo(() => issueEntries.filter((entry) => entry.isNew).length, [issueEntries]);
 
   const severityCounts = useMemo(() => {
     const counts = { all: issues.length, fail: 0, warning: 0, info: 0 };
@@ -100,14 +115,18 @@ export default memo(function IssueInventoryPanel({ report }) {
     return [...seen.entries()].map(([id, label]) => ({ id, label }));
   }, [issues]);
 
-  const visibleIssues = useMemo(
+  // Guard against a stale "new" selection when no previous run exists.
+  const effectiveSeverityFilter = severityFilter === "new" && !addedIdentities ? "all" : severityFilter;
+
+  const visibleEntries = useMemo(
     () =>
-      issues.filter(
-        (issue) =>
-          (severityFilter === "all" || issue.status === severityFilter) &&
+      issueEntries.filter(
+        ({ issue, isNew }) =>
+          (effectiveSeverityFilter === "all" ||
+            (effectiveSeverityFilter === "new" ? isNew : issue.status === effectiveSeverityFilter)) &&
           (sectionFilter === "all" || issue.sectionId === sectionFilter),
       ),
-    [issues, severityFilter, sectionFilter],
+    [issueEntries, effectiveSeverityFilter, sectionFilter],
   );
 
   if (issues.length === 0) {
@@ -131,7 +150,7 @@ export default memo(function IssueInventoryPanel({ report }) {
           <div className="eyebrow">All Issues</div>
           <h3>Item-level findings</h3>
         </div>
-        <span className="issues-count">{visibleIssues.length} shown</span>
+        <span className="issues-count">{visibleEntries.length} shown</span>
       </div>
 
       <p className="panel-copy">
@@ -143,8 +162,8 @@ export default memo(function IssueInventoryPanel({ report }) {
         <div aria-label="Filter by severity" className="issues-filter-chips" role="group">
           {SEVERITY_FILTERS.map((filter) => (
             <button
-              aria-pressed={severityFilter === filter.id}
-              className={`issues-filter-chip ${severityFilter === filter.id ? "is-selected" : ""}`}
+              aria-pressed={effectiveSeverityFilter === filter.id}
+              className={`issues-filter-chip ${effectiveSeverityFilter === filter.id ? "is-selected" : ""}`}
               key={filter.id}
               onClick={() => setSeverityFilter(filter.id)}
               type="button"
@@ -152,6 +171,16 @@ export default memo(function IssueInventoryPanel({ report }) {
               {filter.label} ({severityCounts[filter.id] ?? 0})
             </button>
           ))}
+          {addedIdentities ? (
+            <button
+              aria-pressed={effectiveSeverityFilter === "new"}
+              className={`issues-filter-chip is-new-chip ${effectiveSeverityFilter === "new" ? "is-selected" : ""}`}
+              onClick={() => setSeverityFilter("new")}
+              type="button"
+            >
+              New since last run ({newCount})
+            </button>
+          ) : null}
         </div>
 
         {sections.length > 1 ? (
@@ -170,10 +199,14 @@ export default memo(function IssueInventoryPanel({ report }) {
       </div>
 
       <div className="issues-list">
-        {visibleIssues.map((issue) => (
-          <IssueCard issue={issue} key={issue.id ?? `${issue.sectionId}-${issue.title}-${issue.location?.label ?? ""}`} />
+        {visibleEntries.map(({ issue, isNew }) => (
+          <IssueCard
+            isNew={isNew}
+            issue={issue}
+            key={issue.id ?? `${issue.sectionId}-${issue.title}-${issue.location?.label ?? ""}`}
+          />
         ))}
-        {visibleIssues.length === 0 ? <p className="issues-empty">No issues match the current filters.</p> : null}
+        {visibleEntries.length === 0 ? <p className="issues-empty">No issues match the current filters.</p> : null}
       </div>
     </section>
   );

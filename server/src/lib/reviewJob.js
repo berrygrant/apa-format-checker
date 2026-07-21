@@ -13,6 +13,7 @@ import {
 } from "./ruleChecks.js";
 import { runOpenAiReview } from "./openaiReview.js";
 import { buildFinalReport } from "./reportBuilder.js";
+import { buildReviewCacheKey, reviewCache } from "./reviewCache.js";
 import { appendLlmPreview, completeJob, failJob, setJobStage, upsertJobSection } from "./jobStore.js";
 import { recordReviewOutcome } from "./requestMetrics.js";
 
@@ -123,8 +124,34 @@ function createLlmSection(llmReview) {
   };
 }
 
+// Replays a byte-identical re-upload from the cache: one status stage, all
+// cached section events, then the terminal complete event. The report is
+// annotated so the client can tell the result was served instantly.
+function replayCachedReview(job, cachedReview) {
+  setJobStage(job, "cache_replay", "Returning cached review for this exact document...", 50);
+
+  for (const section of cachedReview.sections) {
+    upsertJobSection(job, section);
+  }
+
+  completeJob(job, {
+    ...cachedReview.report,
+    jobId: job.id,
+    cached: true,
+    cachedAt: cachedReview.createdAt,
+  });
+}
+
 export async function processReviewJob(job, buffer) {
   try {
+    const cacheKey = buildReviewCacheKey(buffer, job.reviewMode);
+    const cachedReview = reviewCache.get(cacheKey);
+
+    if (cachedReview) {
+      replayCachedReview(job, cachedReview);
+      return;
+    }
+
     setJobStage(
       job,
       "parsing_document",
@@ -221,8 +248,19 @@ export async function processReviewJob(job, buffer) {
 
     completeJob(job, finalReport);
 
+    // Cache only healthy runs: a failed LLM stage is a degraded result that a
+    // retry might improve, so it must not be replayed. Keyless runs (LLM
+    // skipped) are deterministic and safe to cache.
+    if (!llmReview.failed) {
+      reviewCache.set(cacheKey, {
+        report: finalReport,
+        sections: Object.values(job.sections),
+      });
+    }
+
     // Fire-and-forget cohort analytics; a metrics failure must never surface
-    // in the review path (the job above is already completed).
+    // in the review path (the job above is already completed). Cache replays
+    // return early above, so each document counts once.
     try {
       recordReviewOutcome(finalReport);
     } catch (metricsError) {
