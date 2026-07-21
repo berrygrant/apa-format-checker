@@ -1,6 +1,11 @@
 import { getReviewModeConfig, getReviewModeLabel } from "./reviewMode.js";
 import { computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
 
+// Version of the final compliance report payload. It participates in the
+// review-cache key, so bumping it invalidates cached reports built by an
+// older report shape.
+export const REPORT_VERSION = "3.1.0";
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
@@ -160,7 +165,7 @@ export function buildFinalReport({ job, parsedDocument, ruleBasedReport, layoutF
   ]);
 
   return {
-    version: "3.1.0",
+    version: REPORT_VERSION,
     jobId: job.id,
     generatedAt: new Date().toISOString(),
     review: {

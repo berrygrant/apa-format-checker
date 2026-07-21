@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import UploadPanel from "./components/UploadPanel.jsx";
 import StatusTimeline from "./components/StatusTimeline.jsx";
 import SectionCard from "./components/SectionCard.jsx";
@@ -13,6 +13,8 @@ import {
   runReviewStream,
 } from "./lib/api.js";
 import { MAX_UPLOAD_BYTES, REVIEW_MODES, REVIEW_STAGES, SECTION_SLOTS, SUPPORTED_EXTENSIONS } from "./lib/constants.js";
+import { diffInventories, issueIdentity } from "./lib/reportDiff.js";
+import { loadPreviousRun, saveRun, toStoredIssues } from "./lib/reviewHistory.js";
 
 const EMPTY_STREAM_STATE = {
   currentStage: "idle",
@@ -23,6 +25,28 @@ const EMPTY_STREAM_STATE = {
   llmPreviewLength: 0,
   error: "",
 };
+
+// Compares the fresh report against the previous stored run for the same
+// filename, then saves the fresh run as the new baseline. Returns null on the
+// first run for a filename (nothing to compare against).
+function computeRunDiff(report) {
+  const filename = report?.document?.filename;
+
+  if (!filename) {
+    return null;
+  }
+
+  const previousRun = loadPreviousRun(filename);
+  const currentIssues = report.issueInventory ?? [];
+  const diff = previousRun ? diffInventories(previousRun.issues, currentIssues) : null;
+
+  saveRun(filename, {
+    timestamp: report.generatedAt ?? new Date().toISOString(),
+    issues: toStoredIssues(currentIssues),
+  });
+
+  return diff;
+}
 
 function fileValidationError(file) {
   if (!file) {
@@ -54,6 +78,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [jobStatus, setJobStatus] = useState("idle");
   const [streamState, setStreamState] = useState(EMPTY_STREAM_STATE);
+  const [runDiff, setRunDiff] = useState(null);
   const [authState, setAuthState] = useState({
     enabled: false,
     authenticated: false,
@@ -65,6 +90,11 @@ export default function App() {
 
   const deferredSections = useDeferredValue(streamState.sections);
   const deferredReport = useDeferredValue(streamState.report);
+
+  const addedIdentities = useMemo(
+    () => (runDiff ? new Set(runDiff.added.map((issue) => issueIdentity(issue))) : null),
+    [runDiff],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -112,6 +142,7 @@ export default function App() {
     terminalEventRef.current = false;
     closeStream();
     setStreamState(EMPTY_STREAM_STATE);
+    setRunDiff(null);
     setAppError("");
     setJobStatus("idle");
     setJobId("");
@@ -202,8 +233,11 @@ export default function App() {
         },
         onComplete: ({ report }) => {
           terminalEventRef.current = true;
+          // Diff against the previous stored run before saving this one.
+          const diff = computeRunDiff(report);
           startTransition(() => {
             setJobStatus("completed");
+            setRunDiff(diff);
             setStreamState((previous) => ({
               ...previous,
               currentStage: "completed",
@@ -459,8 +493,8 @@ export default function App() {
 
             {deferredReport ? (
               <>
-                <ReportSummary report={deferredReport} />
-                <IssueInventoryPanel report={deferredReport} />
+                <ReportSummary report={deferredReport} runDiff={runDiff} />
+                <IssueInventoryPanel addedIdentities={addedIdentities} report={deferredReport} />
 
                 <details className="panel json-panel">
                   <summary>Raw APA compliance JSON</summary>

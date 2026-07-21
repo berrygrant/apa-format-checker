@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { Document, Packer, Paragraph, TextRun } from "docx";
 
 const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -96,6 +98,26 @@ async function createSmokeDocx() {
   });
 
   return Packer.toBuffer(doc);
+}
+
+// The generated DOCX embeds build timestamps, so two invocations never
+// produce byte-identical files. Setting SMOKE_FIXTURE_PATH persists the first
+// generated fixture and reuses those exact bytes on later runs — required to
+// exercise the server's byte-identical review cache with back-to-back runs.
+async function loadSmokeDocx() {
+  const fixturePath = process.env.SMOKE_FIXTURE_PATH;
+
+  if (!fixturePath) {
+    return createSmokeDocx();
+  }
+
+  if (existsSync(fixturePath)) {
+    return readFile(fixturePath);
+  }
+
+  const buffer = await createSmokeDocx();
+  await writeFile(fixturePath, buffer);
+  return buffer;
 }
 
 function parseSseEvent(rawEvent) {
@@ -252,7 +274,7 @@ async function main() {
   }
 
   const formData = new FormData();
-  const docxBuffer = await createSmokeDocx();
+  const docxBuffer = await loadSmokeDocx();
   formData.append("file", new Blob([docxBuffer], { type: DOCX_MIME_TYPE }), "apa-smoke-test.docx");
   formData.append("reviewMode", "standard");
 
@@ -276,6 +298,7 @@ async function main() {
       overallStatus: finalReport.summary.overallStatus,
       overallScore: finalReport.summary.overallScore,
       sectionCount: finalReport.ruleBased.sections.length,
+      cached: finalReport.cached === true,
     }),
   );
 }

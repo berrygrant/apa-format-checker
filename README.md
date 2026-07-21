@@ -51,6 +51,7 @@ npm run dev
 - `LLM_DELTA_FLUSH_MS`: Coalescing window for `llm_delta` stream events. Default `120`
 - `MAX_UPLOAD_BYTES`: Upload size limit for DOCX/PDF files. Default `3145728`
 - `JOB_TTL_MS`: How long completed jobs remain streamable. Default `3600000`
+- `REVIEW_CACHE`: `on`/`off` switch for the byte-identical report cache. Default `on`
 - `APP_PASSWORD`: Optional shared password. If unset, the app remains open.
 - `APP_SESSION_SECRET`: Optional cookie-signing secret. Defaults to `APP_PASSWORD`.
 - `APP_AUTH_HOST`: Optional hostname scope for the password gate. Default example: `apa.lingviz.com`
@@ -91,10 +92,15 @@ Legacy local endpoint for jobs created through `POST /api/review` (same events a
 4. Run one OpenAI structured-output review over labeled line/reference excerpts, the rule-based findings, and the measured layout facts
 5. Merge rule + model findings into a final report: duplicate AI findings fold into the matching rule item (`alsoFlaggedByLlm`), headline counts and the severity-weighted score derive from the deduplicated issue inventory, and the model's own score is reported separately as `summary.aiAssessment`
 
+## Re-run Ergonomics
+
+- **Report cache** (`REVIEW_CACHE`, default `on`): completed reviews are cached in memory, keyed by the SHA-256 of the uploaded bytes plus review mode, OpenAI model, and report version (TTL `JOB_TTL_MS`, at most 50 entries, LRU eviction). Re-uploading the exact same file replays the stored sections and report instantly through a `cache_replay` status stage, and the report is annotated with `cached: true` / `cachedAt`. Runs whose LLM stage failed are never cached.
+- **Since your last run**: the client remembers the previous run's issue inventory per filename in `localStorage` (latest run only, capped at 300 issues, best-effort in private mode). After each review it shows a resolved/new/remaining strip in the summary, plus a "New since last run" filter and per-issue badges in the issue list. Issues are matched by section + digit-stripped title + the first words of the flagged excerpt, so identities survive line renumbering caused by edits elsewhere in the document.
+
 ## Testing
 
 - `npm test` runs the server unit suite (`node --test`), covering the parser zone split, citation/reference heuristics (with regression cases for known false positives), report merging/scoring, and the DOCX layout analyzer against generated fixtures.
-- `npm run smoke:review -- http://127.0.0.1:3001` uploads a generated DOCX to a running server and asserts the full streamed contract (works without an OpenAI key; the LLM stage reports as skipped).
+- `npm run smoke:review -- http://127.0.0.1:3001` uploads a generated DOCX to a running server and asserts the full streamed contract (works without an OpenAI key; the LLM stage reports as skipped). Set `SMOKE_FIXTURE_PATH=/tmp/apa-smoke.docx` to persist and reuse byte-identical fixture bytes across runs — running the smoke twice that way verifies the report cache replay path (`cached: true` in the output).
 - CI runs the unit suite, the client build, and a keyless smoke test.
 
 ## Notes

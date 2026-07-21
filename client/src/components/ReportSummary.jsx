@@ -1,8 +1,9 @@
 import { memo, useState } from "react";
 import { downloadComplianceDocx, downloadComplianceMarkdown, getComplianceIssues } from "../lib/reportExports.js";
 import { formatBytes, humanizeStatus } from "../lib/formatters.js";
+import { summarizeDiff } from "../lib/reportDiff.js";
 
-export default memo(function ReportSummary({ report }) {
+export default memo(function ReportSummary({ report, runDiff = null }) {
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [exportError, setExportError] = useState("");
   const complianceIssueCount = getComplianceIssues(report).length;
@@ -39,6 +40,24 @@ export default memo(function ReportSummary({ report }) {
         </div>
         <div className={`status-pill ${report.summary.overallStatus}`}>{humanizeStatus(report.summary.overallStatus)}</div>
       </div>
+
+      {report.cached ? (
+        <p className="report-cached-note">Instant result — this exact file was reviewed recently.</p>
+      ) : null}
+
+      {runDiff ? (
+        <div className="run-diff-strip">
+          <div className="run-diff-heading">
+            <span className="eyebrow">Since your last run</span>
+            <strong>{summarizeDiff(runDiff)}</strong>
+          </div>
+          <div className="run-diff-stats">
+            <span className="run-diff-stat is-resolved">{runDiff.resolved.length} resolved</span>
+            <span className="run-diff-stat is-added">{runDiff.added.length} new</span>
+            <span className="run-diff-stat is-persisting">{runDiff.persisting.length} remaining</span>
+          </div>
+        </div>
+      ) : null}
 
       <div className="report-actions">
         <div className="report-action-copy">
