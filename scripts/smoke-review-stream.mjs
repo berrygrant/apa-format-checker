@@ -88,9 +88,15 @@ async function createSmokeDocx() {
           new Paragraph(""),
           new Paragraph({ text: "References", spacing: doubleSpaced }),
           new Paragraph({
-            text: "Smith, J. (2022). Writing feedback in psychology courses. Journal of Teaching Practice, 14(2), 22-31.",
             spacing: doubleSpaced,
             indent: { hanging: 720 },
+            children: [
+              new TextRun({ text: "Smith, J. (2022). Writing feedback in psychology courses. " }),
+              // The run-level reference-italics check expects an italicized
+              // journal title in each entry.
+              new TextRun({ text: "Journal of Teaching Practice", italics: true }),
+              new TextRun({ text: ", 14(2), 22-31." }),
+            ],
           }),
         ],
       },

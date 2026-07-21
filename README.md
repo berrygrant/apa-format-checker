@@ -105,6 +105,7 @@ Caveat: the counters live in the same JSON store as the daily request metrics. O
 
 1. Parse the uploaded DOCX or PDF into extracted text
 2. For DOCX uploads, measure layout directly from the file's XML: margins, default font and size, line spacing, first-line and hanging indents, page-number fields, Word heading styles, and title emphasis (`analyzing_layout` stage)
+   - The same extraction also collects run-level italics, used to check that statistical symbols (p, t, F, M, SD, ...) and reference-list journal/book titles are italicized
 3. Run local APA heuristics section by section — document structure, layout, title page, body/headings, citations, references — yielding to the event loop between sections so each `section` event streams as soon as it is computed
 4. Verify DOI-bearing reference entries against the public CrossRef API (`verifying_references` stage): unresolvable DOIs are flagged as likely fabricated or mistyped references, and year/title mismatches surface as warnings quoting what CrossRef reports. Entries without a DOI are not queried, and offline/timeout runs degrade to an informational note — the stage never fails the job
 5. Run one OpenAI structured-output review over labeled line/reference excerpts, the rule-based findings, and the measured layout facts

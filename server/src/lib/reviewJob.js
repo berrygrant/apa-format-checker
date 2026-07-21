@@ -1,5 +1,6 @@
 import { parseDocumentBuffer, summarizeParsedDocument } from "./docxParser.js";
 import { extractDocxLayout } from "./docxLayout.js";
+import { analyzeReferenceItalics, analyzeStatisticsFormatting, mergeAnalyzerResults } from "./formattingChecks.js";
 import { analyzeLayout, analyzeLayoutFailure, analyzePdfLayoutPlaceholder } from "./layoutChecks.js";
 import {
   analyzeBody,
@@ -173,10 +174,15 @@ export async function processReviewJob(job, buffer, overrides = {}) {
     );
 
     let layoutPart;
+    // Run-level facts (per-run italic/bold) ride along on the same DOCX
+    // extraction call; they stay null for PDFs and failed extractions, which
+    // turns the run-level formatting checks below into no-ops.
+    let runFacts = null;
 
     if (isDocx) {
       try {
         const layoutFacts = await extractDocxLayout(buffer);
+        runFacts = layoutFacts.runs ?? null;
         layoutPart = analyzeLayout(layoutFacts, { referencesLocated: !parsedDocument.referencesMissing });
       } catch (error) {
         layoutPart = analyzeLayoutFailure(error);
@@ -195,12 +201,21 @@ export async function processReviewJob(job, buffer, overrides = {}) {
     await yieldToEventLoop();
 
     const parts = [{ section: layoutPart.section, itemIssues: layoutPart.itemIssues }];
-    for (const analyze of [analyzeDocumentStructure, analyzeTitlePage, analyzeBody]) {
+    for (const analyze of [analyzeDocumentStructure, analyzeTitlePage]) {
       const part = analyze(parsedDocument);
       parts.push(part);
       upsertJobSection(job, part.section);
       await yieldToEventLoop();
     }
+
+    // Run-level statistics italics fold into the body part before it is
+    // scored and streamed, so the section event already reflects them.
+    const bodyPart = mergeAnalyzerResults(analyzeBody(parsedDocument), [
+      analyzeStatisticsFormatting(parsedDocument, runFacts),
+    ]);
+    parts.push(bodyPart);
+    upsertJobSection(job, bodyPart.section);
+    await yieldToEventLoop();
 
     setJobStage(job, "evaluating_citations", "Evaluating citations...", 48);
     const citationsPart = analyzeCitations(parsedDocument, citationData, referenceData);
@@ -209,7 +224,9 @@ export async function processReviewJob(job, buffer, overrides = {}) {
     await yieldToEventLoop();
 
     setJobStage(job, "evaluating_references", "Evaluating references...", 62);
-    let referencesPart = analyzeReferences(parsedDocument, citationData, referenceData);
+    let referencesPart = mergeAnalyzerResults(analyzeReferences(parsedDocument, citationData, referenceData), [
+      analyzeReferenceItalics(parsedDocument, runFacts),
+    ]);
     upsertJobSection(job, referencesPart.section);
     await yieldToEventLoop();
 

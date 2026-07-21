@@ -1,3 +1,4 @@
+import { REFERENCES_HEADING_REGEX } from "./docxParser.js";
 import { STATUS_RANK, computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
 
 const SECTION_ORDER = ["document", "layout", "titlePage", "body", "citations", "references"];
@@ -762,6 +763,220 @@ function findHeadingNumberingIssues(lineRecords) {
   return issues;
 }
 
+const ABSTRACT_HEADING_REGEX = /^\s*abstract\s*$/i;
+const ABSTRACT_WORD_LIMIT = 250;
+const ABSTRACT_SCAN_LINE_LIMIT = 40;
+const KEYWORDS_LINE_REGEX = /^\s*keywords\s*:/i;
+
+function isAbstractBoundaryLine(lineRecord) {
+  return (
+    HEADING_PATTERNS.some((item) => item.regex.test(lineRecord.text)) ||
+    REFERENCES_HEADING_REGEX.test(lineRecord.text) ||
+    KEYWORDS_LINE_REGEX.test(lineRecord.text) ||
+    detectNumberedHeadings([lineRecord]).length > 0
+  );
+}
+
+// Counts abstract words from the line after a standalone "Abstract" heading up
+// to the next detected heading (or a 40-line window, whichever comes first).
+// The count is approximate by design, so findings phrase it as "~N".
+function measureAbstract(parsedDocument) {
+  const lineRecords = parsedDocument.lineRecords ?? [];
+  const headingIndex = lineRecords.findIndex((lineRecord) => ABSTRACT_HEADING_REGEX.test(lineRecord.text));
+
+  if (headingIndex === -1) {
+    return null;
+  }
+
+  const headingLineRecord = lineRecords[headingIndex];
+  let endLineRecord = headingLineRecord;
+  let wordCount = 0;
+
+  for (
+    let index = headingIndex + 1;
+    index < lineRecords.length && index - headingIndex <= ABSTRACT_SCAN_LINE_LIMIT;
+    index += 1
+  ) {
+    const lineRecord = lineRecords[index];
+
+    if (isAbstractBoundaryLine(lineRecord)) {
+      break;
+    }
+
+    wordCount += tokenize(lineRecord.text).length;
+    endLineRecord = lineRecord;
+  }
+
+  return { wordCount, headingLineRecord, endLineRecord };
+}
+
+// Sentence starts are start-of-segment or terminal punctuation plus a space.
+// Precision over recall: only bare integers count (decimals and "5,000" fail
+// the shape), years are excluded, abbreviation periods (p. 12, et al., e.g.)
+// are not sentence ends, and the next word must start lowercase so numbered
+// headings ("2 Method") and proper-noun starts ("50 American adults") pass.
+const SENTENCE_INITIAL_NUMERAL_REGEX = /(^|[.!?]\s+)(\d{1,4})(?=\s+[a-z])/g;
+const SENTENCE_INITIAL_NUMERAL_CAP = 10;
+const YEAR_NUMERAL_REGEX = /^(?:19|20)\d{2}$/;
+const ABBREVIATION_BOUNDARY_REGEX =
+  /\b(?:[A-Za-z]|pp?|paras?|nos?|vols?|figs?|eqs?|chs?|secs?|al|cf|vs|etc|approx|ca|resp|jr|sr|dr|mr|mrs|ms|st)\.$/i;
+
+function findSentenceInitialNumerals(segmentRecords) {
+  const issues = [];
+
+  for (const segmentRecord of segmentRecords) {
+    if (segmentRecord.zone !== "main") {
+      continue;
+    }
+
+    for (const match of segmentRecord.text.matchAll(SENTENCE_INITIAL_NUMERAL_REGEX)) {
+      const numeral = match[2];
+
+      if (YEAR_NUMERAL_REGEX.test(numeral)) {
+        continue;
+      }
+
+      const boundary = match[1];
+
+      if (boundary && ABBREVIATION_BOUNDARY_REGEX.test(segmentRecord.text.slice(0, (match.index ?? 0) + 1))) {
+        continue;
+      }
+
+      const numeralIndex = (match.index ?? 0) + boundary.length;
+      issues.push({
+        numeral,
+        segmentRecord,
+        excerpt: segmentRecord.text.slice(numeralIndex, numeralIndex + 90),
+      });
+    }
+  }
+
+  return issues;
+}
+
+const BLOCK_QUOTE_MIN_WORDS = 40;
+
+function findBlockQuoteCandidates(segmentRecords) {
+  const issues = [];
+
+  for (const segmentRecord of segmentRecords) {
+    if (segmentRecord.zone !== "main") {
+      continue;
+    }
+
+    for (const match of segmentRecord.text.matchAll(QUOTED_SPAN_REGEX)) {
+      const quoteWordCount = tokenize(match[1]).length;
+
+      if (quoteWordCount >= BLOCK_QUOTE_MIN_WORDS) {
+        issues.push({ quoteWordCount, segmentRecord, excerpt: match[0] });
+      }
+    }
+  }
+
+  return issues;
+}
+
+// Two-author detection stays deliberately strict: exactly one "&" and exactly
+// two "Surname, X." initial groups before the year parenthetical. Anything
+// ambiguous (organizational authors, missing initials, "et al." in the entry)
+// is treated as not-clearly-two-authors and skipped.
+const REFERENCE_AUTHOR_INITIAL_GROUP_REGEX = /[A-Za-z\u00c0-\u024f'\u2019`-]+,\s*(?:[A-Z]\.[\s-]?)+/g;
+const REFERENCE_YEAR_PARENS_REGEX = /\((?:(?:19|20)\d{2}[a-z]?|n\.d\.)\)/;
+
+function escapeRegExp(input) {
+  return String(input || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseReferenceAuthorship(referenceRaw) {
+  const raw = String(referenceRaw || "");
+  const yearMatch = raw.match(REFERENCE_YEAR_PARENS_REGEX);
+
+  if (!yearMatch || typeof yearMatch.index !== "number" || yearMatch.index === 0) {
+    return null;
+  }
+
+  const authorField = raw.slice(0, yearMatch.index);
+  const surname = authorField.split(",")[0]?.trim() ?? "";
+
+  if (!surname || surname.length > 40 || !/^[A-Z]/.test(surname) || /\d/.test(surname)) {
+    return null;
+  }
+
+  const initialGroups = authorField.match(REFERENCE_AUTHOR_INITIAL_GROUP_REGEX) ?? [];
+
+  return {
+    surname,
+    secondSurname: initialGroups[1]?.split(",")[0]?.trim() ?? null,
+    year: yearMatch[0].slice(1, -1),
+    initialGroupCount: initialGroups.length,
+    ampersandCount: (authorField.match(/&/g) ?? []).length,
+    hasEtAl: /\bet\s+al\b/i.test(authorField),
+  };
+}
+
+function isTwoAuthorReference(authorship) {
+  return Boolean(authorship) && !authorship.hasEtAl && authorship.ampersandCount === 1 && authorship.initialGroupCount === 2;
+}
+
+function isThreePlusAuthorReference(authorship) {
+  return Boolean(authorship) && (authorship.hasEtAl || authorship.initialGroupCount >= 3);
+}
+
+function findTwoAuthorEtAlIssues(parsedDocument, referencePairs) {
+  const twoAuthorEntries = [];
+  const threePlusSurnames = new Set();
+
+  for (const referencePair of referencePairs) {
+    const authorship = parseReferenceAuthorship(referencePair.raw);
+
+    if (isThreePlusAuthorReference(authorship)) {
+      threePlusSurnames.add(normalizeSurname(authorship.surname));
+    } else if (isTwoAuthorReference(authorship)) {
+      twoAuthorEntries.push({ authorship, referencePair });
+    }
+  }
+
+  const issues = [];
+  const seenSignatures = new Set();
+
+  for (const { authorship, referencePair } of twoAuthorEntries) {
+    const normalizedSurname = normalizeSurname(authorship.surname);
+
+    // If any other entry by this first author has three or more authors, an
+    // "et al." citation may legitimately point at that other work.
+    if (!normalizedSurname || threePlusSurnames.has(normalizedSurname)) {
+      continue;
+    }
+
+    const citationRegex = new RegExp(`\\b${escapeRegExp(authorship.surname)}\\s+et\\s+al\\b\\.?`, "gi");
+
+    for (const lineRecord of parsedDocument.bodyLineRecords) {
+      for (const match of lineRecord.text.matchAll(citationRegex)) {
+        const matchEnd = (match.index ?? 0) + match[0].length;
+        const followingYear =
+          lineRecord.text.slice(matchEnd, matchEnd + 16).match(/^\s*[,(]?\s*\(?((?:19|20)\d{2}[a-z]?)/)?.[1] ?? null;
+
+        // A different adjacent year likely cites a different work by the same
+        // surname; the missing-reference crosswalk covers that case instead.
+        if (followingYear && followingYear !== authorship.year) {
+          continue;
+        }
+
+        const signature = `${normalizedSurname}:${lineRecord.lineNumber}`;
+
+        if (seenSignatures.has(signature)) {
+          continue;
+        }
+
+        seenSignatures.add(signature);
+        issues.push({ raw: match[0], authorship, referencePair, lineRecord });
+      }
+    }
+  }
+
+  return issues;
+}
+
 function findMalformedEtAlOccurrences(lineRecords) {
   const issues = [];
 
@@ -1113,6 +1328,20 @@ export function analyzeBody(parsedDocument) {
     (item) => item.label,
   );
   const numberedHeadingIssues = findHeadingNumberingIssues(parsedDocument.mainLineRecords);
+  const abstractMeasurement = measureAbstract(parsedDocument);
+  const abstractTooLong = Boolean(abstractMeasurement) && abstractMeasurement.wordCount > ABSTRACT_WORD_LIMIT;
+  const abstractLocation = abstractMeasurement
+    ? makeLocation({
+        sectionId: "body",
+        lineStart: abstractMeasurement.headingLineRecord.lineNumber,
+        lineEnd: abstractMeasurement.endLineRecord.lineNumber,
+        paragraphNumber: abstractMeasurement.headingLineRecord.paragraphNumber,
+        excerpt: abstractMeasurement.headingLineRecord.text,
+      })
+    : null;
+  const sentenceInitialNumeralIssues = findSentenceInitialNumerals(parsedDocument.segmentRecords);
+  const visibleNumeralIssues = sentenceInitialNumeralIssues.slice(0, SENTENCE_INITIAL_NUMERAL_CAP);
+  const hiddenNumeralCount = sentenceInitialNumeralIssues.length - visibleNumeralIssues.length;
   const itemIssues = [];
 
   if (parsedDocument.metrics.bodyWords < 300) {
@@ -1181,77 +1410,160 @@ export function analyzeBody(parsedDocument) {
     );
   }
 
+  if (abstractTooLong) {
+    itemIssues.push(
+      makeItemIssue({
+        sectionId: "body",
+        sectionLabel: "Body and Headings",
+        status: "warning",
+        title: "Abstract exceeds APA word limit",
+        detail: `APA abstracts are ≤250 words; yours is ~${abstractMeasurement.wordCount}.`,
+        recommendation: "Trim the abstract to 250 words or fewer (APA 7, Section 2.9).",
+        location: abstractLocation,
+      }),
+    );
+  }
+
+  for (const numeralIssue of visibleNumeralIssues) {
+    itemIssues.push(
+      makeItemIssue({
+        sectionId: "body",
+        sectionLabel: "Body and Headings",
+        status: "warning",
+        title: "Sentence begins with a numeral",
+        detail: `A sentence appears to begin with the bare numeral ${numeralIssue.numeral}: "${truncateExcerpt(numeralIssue.excerpt, 100)}".`,
+        recommendation: "Spell out a number that begins a sentence, or rewrite the sentence so the numeral is not first.",
+        location: makeLocation({
+          sectionId: "body",
+          lineStart: numeralIssue.segmentRecord.lineStart,
+          lineEnd: numeralIssue.segmentRecord.lineEnd,
+          paragraphNumber: numeralIssue.segmentRecord.paragraphNumber,
+          excerpt: numeralIssue.excerpt,
+        }),
+      }),
+    );
+  }
+
+  const findings = [
+    parsedDocument.metrics.bodyWords >= 300
+      ? makeFinding(
+          "pass",
+          "Body excerpt captured",
+          `The extracted body excerpt contains ${parsedDocument.metrics.bodyWords} words.`,
+          "No action required.",
+        )
+      : makeFinding(
+          "warning",
+          "Short body excerpt",
+          `Only ${parsedDocument.metrics.bodyWords} body words were captured for review.`,
+          `Verify that body text starts after the title page and remains selectable in the ${noun}.`,
+          null,
+          bodyLocation,
+        ),
+    headingMatches.length >= 2
+      ? makeFinding(
+          "pass",
+          "Section headings detected",
+          `Detected heading cues: ${headingMatches.join(", ")}.`,
+          "Keep heading levels consistent throughout the thesis.",
+        )
+      : makeFinding(
+          "warning",
+          "Few APA-style headings detected",
+          "The parser found limited evidence of APA-style section headings in the excerpt.",
+          "Review heading levels, especially for major thesis sections.",
+          null,
+          bodyLocation,
+        ),
+    numberedHeadingIssues.length === 0
+      ? makeFinding(
+          "pass",
+          "Numbered headings stay in sequence",
+          "No obvious numbering gaps were detected among numbered top-level headings.",
+          "No action required.",
+        )
+      : makeFinding(
+          "warning",
+          "Numbered heading sequence issue",
+          `Detected ${numberedHeadingIssues.length} numbered heading sequence issue${numberedHeadingIssues.length === 1 ? "" : "s"}.`,
+          "Review chapter or section numbering for missing, duplicated, or out-of-order values.",
+          null,
+          buildLineLocation("body", numberedHeadingIssues[0].current.lineRecord),
+        ),
+    parsedDocument.segments.length >= 6
+      ? makeFinding(
+          "pass",
+          "Multi-paragraph structure detected",
+          `The document contains ${parsedDocument.segments.length} text segments.`,
+          "No action required.",
+        )
+      : makeFinding(
+          "warning",
+          "Limited paragraph structure",
+          `The parsed ${noun} has relatively few paragraph breaks, which can hide heading and spacing issues.`,
+          "Check paragraph breaks and body structure in the source document.",
+          null,
+          bodyLocation,
+        ),
+  ];
+
+  // Abstract and numeral findings are conditional: documents without an
+  // Abstract heading or without offending sentences are not nagged.
+  if (abstractMeasurement) {
+    findings.push(
+      abstractTooLong
+        ? makeFinding(
+            "warning",
+            "Abstract exceeds APA word limit",
+            `APA abstracts are ≤250 words; yours is ~${abstractMeasurement.wordCount}.`,
+            "Trim the abstract to 250 words or fewer (APA 7, Section 2.9).",
+            null,
+            abstractLocation,
+          )
+        : makeFinding(
+            "pass",
+            "Abstract length within APA limit",
+            `The abstract is ~${abstractMeasurement.wordCount} words (APA limit: 250).`,
+            "No action required.",
+            null,
+            abstractLocation,
+          ),
+    );
+  }
+
+  if (sentenceInitialNumeralIssues.length > 0) {
+    findings.push(
+      makeFinding(
+        "warning",
+        "Sentences begin with numerals",
+        `${sentenceInitialNumeralIssues.length} sentence${sentenceInitialNumeralIssues.length === 1 ? " appears" : "s appear"} to begin with a bare numeral${
+          hiddenNumeralCount > 0 ? ` (${visibleNumeralIssues.length} listed; +${hiddenNumeralCount} more)` : ""
+        }.`,
+        "Spell out numbers that begin a sentence, or rewrite the sentence so the numeral is not first.",
+        null,
+        makeLocation({
+          sectionId: "body",
+          lineStart: sentenceInitialNumeralIssues[0].segmentRecord.lineStart,
+          lineEnd: sentenceInitialNumeralIssues[0].segmentRecord.lineEnd,
+          paragraphNumber: sentenceInitialNumeralIssues[0].segmentRecord.paragraphNumber,
+          excerpt: sentenceInitialNumeralIssues[0].excerpt,
+        }),
+      ),
+    );
+  }
+
   const section = buildSection(
     "body",
     "Body and Headings",
-    "Looks for enough body text, common APA section headings, and section-numbering continuity when numbered headings are used.",
-    [
-      parsedDocument.metrics.bodyWords >= 300
-        ? makeFinding(
-            "pass",
-            "Body excerpt captured",
-            `The extracted body excerpt contains ${parsedDocument.metrics.bodyWords} words.`,
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Short body excerpt",
-            `Only ${parsedDocument.metrics.bodyWords} body words were captured for review.`,
-            `Verify that body text starts after the title page and remains selectable in the ${noun}.`,
-            null,
-            bodyLocation,
-          ),
-      headingMatches.length >= 2
-        ? makeFinding(
-            "pass",
-            "Section headings detected",
-            `Detected heading cues: ${headingMatches.join(", ")}.`,
-            "Keep heading levels consistent throughout the thesis.",
-          )
-        : makeFinding(
-            "warning",
-            "Few APA-style headings detected",
-            "The parser found limited evidence of APA-style section headings in the excerpt.",
-            "Review heading levels, especially for major thesis sections.",
-            null,
-            bodyLocation,
-          ),
-      numberedHeadingIssues.length === 0
-        ? makeFinding(
-            "pass",
-            "Numbered headings stay in sequence",
-            "No obvious numbering gaps were detected among numbered top-level headings.",
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Numbered heading sequence issue",
-            `Detected ${numberedHeadingIssues.length} numbered heading sequence issue${numberedHeadingIssues.length === 1 ? "" : "s"}.`,
-            "Review chapter or section numbering for missing, duplicated, or out-of-order values.",
-            null,
-            buildLineLocation("body", numberedHeadingIssues[0].current.lineRecord),
-          ),
-      parsedDocument.segments.length >= 6
-        ? makeFinding(
-            "pass",
-            "Multi-paragraph structure detected",
-            `The document contains ${parsedDocument.segments.length} text segments.`,
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Limited paragraph structure",
-            `The parsed ${noun} has relatively few paragraph breaks, which can hide heading and spacing issues.`,
-            "Check paragraph breaks and body structure in the source document.",
-            null,
-            bodyLocation,
-          ),
-    ],
+    "Looks for enough body text, common APA section headings, abstract length, sentence-initial numerals, and section-numbering continuity when numbered headings are used.",
+    findings,
     {
       bodyWordCount: parsedDocument.metrics.bodyWords,
       headingCount: headingMatches.length,
       segmentCount: parsedDocument.segments.length,
       numberedHeadingIssueCount: numberedHeadingIssues.length,
+      abstractWordCount: abstractMeasurement?.wordCount ?? null,
+      sentenceInitialNumeralCount: sentenceInitialNumeralIssues.length,
     },
   );
 
@@ -1264,6 +1576,8 @@ export function analyzeCitations(parsedDocument, citationData, referenceData) {
   const bodyLocation = buildBodyLocation(parsedDocument);
   const malformedEtAlIssues = findMalformedEtAlOccurrences(parsedDocument.bodyLineRecords);
   const quoteLocatorIssues = findQuotedSegmentsWithoutLocator(parsedDocument.segmentRecords);
+  const blockQuoteIssues = findBlockQuoteCandidates(parsedDocument.segmentRecords);
+  const twoAuthorEtAlIssues = findTwoAuthorEtAlIssues(parsedDocument, referencePairs);
   const pageCitationCount = [...parsedDocument.bodyText.matchAll(PAGE_CITATION_REGEX)].length;
   const matchesReference = buildKeyMatcher(referencePairs);
   const unmatchedCitationsByKey = new Map();
@@ -1364,78 +1678,154 @@ export function analyzeCitations(parsedDocument, citationData, referenceData) {
     );
   }
 
+  for (const blockQuoteIssue of blockQuoteIssues) {
+    itemIssues.push(
+      makeItemIssue({
+        sectionId: "citations",
+        sectionLabel: "Citations",
+        status: "warning",
+        title: "Long quotation not formatted as a block quote",
+        detail: `A quotation of ~${blockQuoteIssue.quoteWordCount} words appears inside quotation marks. Quotations of 40+ words must be block quotes (freestanding, indented, no quotation marks).`,
+        recommendation: "Format quotations of 40 or more words as freestanding, indented block quotes without quotation marks.",
+        location: makeLocation({
+          sectionId: "citations",
+          lineStart: blockQuoteIssue.segmentRecord.lineStart,
+          lineEnd: blockQuoteIssue.segmentRecord.lineEnd,
+          paragraphNumber: blockQuoteIssue.segmentRecord.paragraphNumber,
+          excerpt: blockQuoteIssue.excerpt,
+        }),
+      }),
+    );
+  }
+
+  for (const twoAuthorEtAlIssue of twoAuthorEtAlIssues) {
+    const pairLabel = twoAuthorEtAlIssue.authorship.secondSurname
+      ? `${twoAuthorEtAlIssue.authorship.surname} & ${twoAuthorEtAlIssue.authorship.secondSurname}`
+      : twoAuthorEtAlIssue.authorship.surname;
+
+    itemIssues.push(
+      makeItemIssue({
+        sectionId: "citations",
+        sectionLabel: "Citations",
+        status: "fail",
+        title: "et al. used for a two-author work",
+        detail: `"${twoAuthorEtAlIssue.raw}" cites a work with only two authors (${pairLabel}, ${twoAuthorEtAlIssue.authorship.year}). "et al." is only used for works with three or more authors.`,
+        recommendation: `Name both authors every time, e.g. "(${pairLabel}, ${twoAuthorEtAlIssue.authorship.year})".`,
+        location: buildLineLocation("citations", twoAuthorEtAlIssue.lineRecord),
+      }),
+    );
+  }
+
+  const findings = [
+    citationPairs.length > 0
+      ? makeFinding(
+          "pass",
+          "In-text citations detected",
+          `Detected ${citationPairs.length} citation instance${citationPairs.length === 1 ? "" : "s"} in the body excerpt.`,
+          "Confirm punctuation and italicization manually where needed.",
+        )
+      : makeFinding(
+          parsedDocument.metrics.bodyWords >= 600 ? "fail" : "warning",
+          "No in-text citations detected",
+          "No APA-style in-text citations were detected in the body excerpt.",
+          "Review the body for parenthetical or narrative citations.",
+          null,
+          bodyLocation,
+        ),
+    malformedEtAlIssues.length === 0
+      ? makeFinding("pass", "No obvious et al. errors", 'No malformed "et al." patterns were detected.', "No action required.")
+      : makeFinding(
+          "fail",
+          "Malformed et al. citations found",
+          `Detected ${malformedEtAlIssues.length} likely malformed "et al." citation${malformedEtAlIssues.length === 1 ? "" : "s"}.`,
+          'Use "et al." with a trailing period in APA 7.',
+          null,
+          buildLineLocation("citations", malformedEtAlIssues[0].lineRecord),
+        ),
+    quoteLocatorIssues.length === 0
+      ? makeFinding(
+          "pass",
+          "Locator citations not obviously missing",
+          "No obvious mismatch between quotations and page-style locators was detected.",
+          "No action required.",
+        )
+      : makeFinding(
+          "warning",
+          "Quoted text may lack locator citations",
+          `Detected ${quoteLocatorIssues.length} quoted paragraph${quoteLocatorIssues.length === 1 ? "" : "s"} without a page or paragraph locator.`,
+          "Check direct quotations for APA page or paragraph citations.",
+          null,
+          makeLocation({
+            sectionId: "citations",
+            lineStart: quoteLocatorIssues[0].lineStart,
+            lineEnd: quoteLocatorIssues[0].lineEnd,
+            paragraphNumber: quoteLocatorIssues[0].paragraphNumber,
+            excerpt: quoteLocatorIssues[0].text,
+          }),
+        ),
+    unmatchedCitationGroups.length === 0
+      ? makeFinding(
+          "pass",
+          "Citations matched to references",
+          "Every detectable citation pair in the excerpt was found in the extracted references.",
+          "No action required.",
+        )
+      : makeFinding(
+          unmatchedCitationGroups.length >= 3 ? "fail" : "warning",
+          "Citations missing from references",
+          `${unmatchedCitationGroups.length} cited source${unmatchedCitationGroups.length === 1 ? "" : "s"} could not be matched to the references list.`,
+          "Check author-year consistency between in-text citations and the References section.",
+          null,
+          unmatchedCitationGroups[0].pair.location,
+        ),
+  ];
+
+  // Block-quote and two-author "et al." findings are conditional so documents
+  // without long quotations or two-author sources are not nagged.
+  if (blockQuoteIssues.length > 0) {
+    findings.push(
+      makeFinding(
+        "warning",
+        "Quotations of 40+ words should be block quotes",
+        `${blockQuoteIssues.length} quotation${blockQuoteIssues.length === 1 ? "" : "s"} of 40+ words appear${blockQuoteIssues.length === 1 ? "s" : ""} inside quotation marks. Quotations of 40+ words must be block quotes (freestanding, indented, no quotation marks).`,
+        "Format quotations of 40 or more words as freestanding, indented block quotes without quotation marks.",
+        null,
+        makeLocation({
+          sectionId: "citations",
+          lineStart: blockQuoteIssues[0].segmentRecord.lineStart,
+          lineEnd: blockQuoteIssues[0].segmentRecord.lineEnd,
+          paragraphNumber: blockQuoteIssues[0].segmentRecord.paragraphNumber,
+          excerpt: blockQuoteIssues[0].excerpt,
+        }),
+      ),
+    );
+  }
+
+  if (twoAuthorEtAlIssues.length > 0) {
+    findings.push(
+      makeFinding(
+        "fail",
+        "et al. used for two-author works",
+        `${twoAuthorEtAlIssues.length} citation${twoAuthorEtAlIssues.length === 1 ? " uses" : "s use"} "et al." for a work that has only two authors.`,
+        '"et al." is only used for works with three or more authors; name both authors every time.',
+        null,
+        buildLineLocation("citations", twoAuthorEtAlIssues[0].lineRecord),
+      ),
+    );
+  }
+
   const section = buildSection(
     "citations",
     "Citations",
-    "Checks citation density, common APA citation syntax, and citation/reference crosswalks.",
-    [
-      citationPairs.length > 0
-        ? makeFinding(
-            "pass",
-            "In-text citations detected",
-            `Detected ${citationPairs.length} citation instance${citationPairs.length === 1 ? "" : "s"} in the body excerpt.`,
-            "Confirm punctuation and italicization manually where needed.",
-          )
-        : makeFinding(
-            parsedDocument.metrics.bodyWords >= 600 ? "fail" : "warning",
-            "No in-text citations detected",
-            "No APA-style in-text citations were detected in the body excerpt.",
-            "Review the body for parenthetical or narrative citations.",
-            null,
-            bodyLocation,
-          ),
-      malformedEtAlIssues.length === 0
-        ? makeFinding("pass", "No obvious et al. errors", 'No malformed "et al." patterns were detected.', "No action required.")
-        : makeFinding(
-            "fail",
-            "Malformed et al. citations found",
-            `Detected ${malformedEtAlIssues.length} likely malformed "et al." citation${malformedEtAlIssues.length === 1 ? "" : "s"}.`,
-            'Use "et al." with a trailing period in APA 7.',
-            null,
-            buildLineLocation("citations", malformedEtAlIssues[0].lineRecord),
-          ),
-      quoteLocatorIssues.length === 0
-        ? makeFinding(
-            "pass",
-            "Locator citations not obviously missing",
-            "No obvious mismatch between quotations and page-style locators was detected.",
-            "No action required.",
-          )
-        : makeFinding(
-            "warning",
-            "Quoted text may lack locator citations",
-            `Detected ${quoteLocatorIssues.length} quoted paragraph${quoteLocatorIssues.length === 1 ? "" : "s"} without a page or paragraph locator.`,
-            "Check direct quotations for APA page or paragraph citations.",
-            null,
-            makeLocation({
-              sectionId: "citations",
-              lineStart: quoteLocatorIssues[0].lineStart,
-              lineEnd: quoteLocatorIssues[0].lineEnd,
-              paragraphNumber: quoteLocatorIssues[0].paragraphNumber,
-              excerpt: quoteLocatorIssues[0].text,
-            }),
-          ),
-      unmatchedCitationGroups.length === 0
-        ? makeFinding(
-            "pass",
-            "Citations matched to references",
-            "Every detectable citation pair in the excerpt was found in the extracted references.",
-            "No action required.",
-          )
-        : makeFinding(
-            unmatchedCitationGroups.length >= 3 ? "fail" : "warning",
-            "Citations missing from references",
-            `${unmatchedCitationGroups.length} cited source${unmatchedCitationGroups.length === 1 ? "" : "s"} could not be matched to the references list.`,
-            "Check author-year consistency between in-text citations and the References section.",
-            null,
-            unmatchedCitationGroups[0].pair.location,
-          ),
-    ],
+    "Checks citation density, common APA citation syntax, quotation formatting, and citation/reference crosswalks.",
+    findings,
     {
       citationCount: citationPairs.length,
       pageCitationCount,
       unmatchedCitationCount: unmatchedCitationGroups.length,
       malformedEtAlCount: malformedEtAlIssues.length,
+      blockQuoteIssueCount: blockQuoteIssues.length,
+      twoAuthorEtAlCount: twoAuthorEtAlIssues.length,
     },
   );
 
