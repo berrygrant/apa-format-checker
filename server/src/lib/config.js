@@ -16,9 +16,19 @@ export const MAX_UPLOAD_BYTES = readPositiveInteger("MAX_UPLOAD_BYTES", 3 * 1024
 export const JOB_TTL_MS = readPositiveInteger("JOB_TTL_MS", 60 * 60 * 1000);
 export const JOB_SNAPSHOT_TABLE = readString("JOB_SNAPSHOT_TABLE");
 export const PORT = readPositiveInteger("PORT", 3001);
-export const OPENAI_MODEL = readString("OPENAI_MODEL", "gpt-5-mini");
+export const OPENAI_MODEL = readString("OPENAI_MODEL", "gpt-5.6-luna");
 export const OPENAI_TIMEOUT_MS = readPositiveInteger("OPENAI_TIMEOUT_MS", 240 * 1000);
 export const OPENAI_MAX_RETRIES = readPositiveInteger("OPENAI_MAX_RETRIES", 1);
+
+function readTemperature(name, fallback) {
+  const value = Number.parseFloat(process.env[name] ?? "");
+  return Number.isFinite(value) && value >= 0 && value <= 2 ? value : fallback;
+}
+
+// Applied only when the configured model accepts sampling controls (reasoning
+// models like gpt-5-mini reject them); 0 keeps the AI findings as repeatable
+// as the API allows.
+export const OPENAI_TEMPERATURE = readTemperature("OPENAI_TEMPERATURE", 0);
 export const LLM_DELTA_FLUSH_MS = readPositiveInteger("LLM_DELTA_FLUSH_MS", 120);
 export const REVIEW_CACHE_ENABLED = readOnOffFlag("REVIEW_CACHE", "on");
 export const REFERENCE_VERIFICATION_ENABLED = readOnOffFlag("REFERENCE_VERIFICATION", "on");

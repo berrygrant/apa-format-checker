@@ -434,7 +434,7 @@ test("processReviewJob wires CrossRef verification into the stream and the final
   assert.equal(job.status, "completed");
 
   const report = job.report;
-  assert.equal(report.version, "3.2.0");
+  assert.equal(report.version, "3.3.0");
   assert.equal(report.referenceVerification.status, "completed");
   assert.equal(report.referenceVerification.checked, 2);
   assert.equal(report.referenceVerification.verified, 1);

@@ -18,7 +18,7 @@ Parameters:
     Default: arn:aws:acm:us-east-1:723173543836:certificate/b1255947-4f28-4378-9017-7631ef894f2b
   OpenAIModel:
     Type: String
-    Default: gpt-5-mini
+    Default: gpt-5.6-luna
   MaxUploadBytes:
     Type: String
     Default: "3145728"

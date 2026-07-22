@@ -1,38 +1,18 @@
 import { getReviewModeConfig, getReviewModeLabel } from "./reviewMode.js";
-import { computeWeightedScore, countByStatus, worstStatus } from "./scoring.js";
+import { computeWeightedScore, countByStatus } from "./scoring.js";
 
 // Version of the final compliance report payload. It participates in the
 // review-cache key, so bumping it invalidates cached reports built by an
 // older report shape.
-export const REPORT_VERSION = "3.2.0";
+export const REPORT_VERSION = "3.3.0";
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function combineStatus(ruleStatus, llmStatus) {
-  if (!llmStatus) {
-    return ruleStatus;
-  }
-
-  return worstStatus(ruleStatus, llmStatus);
-}
-
-function summarizeHybridHeadline(ruleBasedReport, llmReview, overallStatus) {
-  if (llmReview.report?.summary) {
-    return llmReview.report.summary;
-  }
-
-  if (overallStatus === "fail") {
-    return ruleBasedReport.summary.headline;
-  }
-
-  if (llmReview.skipped) {
-    return `${ruleBasedReport.summary.headline} The LLM stage was skipped because no API key was configured.`;
-  }
-
-  if (llmReview.failed) {
-    return `${ruleBasedReport.summary.headline} The LLM stage failed, so this result reflects only the rule-based checks.`;
+function buildHeadline(ruleBasedReport, llmReview) {
+  if (llmReview.skipped || llmReview.failed) {
+    return `${ruleBasedReport.summary.headline} ${llmReview.message}`;
   }
 
   return ruleBasedReport.summary.headline;
@@ -169,13 +149,21 @@ export function buildFinalReport({
 }) {
   const reviewModeConfig = getReviewModeConfig(job.reviewMode);
   const llmStatus = llmReview.report?.overallStatus ?? null;
-  const overallStatus = combineStatus(ruleBasedReport.summary.overallStatus, llmStatus);
+  // The headline status and score come from deterministic checks only, so the
+  // same manuscript always grades identically. The AI pass runs on a reasoning
+  // model that accepts no temperature or seed, so its findings vary run to
+  // run; they surface as labeled advisory items (and aiAssessment) instead of
+  // moving the grade.
+  const overallStatus = ruleBasedReport.summary.overallStatus;
   const llmSummaryStatus = llmStatus ?? (llmReview.skipped ? "skipped" : llmReview.failed ? "failed" : null);
 
   const priorityActions = buildPriorityActions(ruleBasedReport, llmReview);
   const llmItems = buildLlmItems(llmReview);
   const issueInventory = dedupeIssueInventory(ruleBasedReport.itemIssues ?? [], llmItems);
-  const issueCounts = countByStatus(issueInventory.filter((issue) => issue.status !== "pass"));
+  const scoredIssues = issueInventory.filter((issue) => issue.status !== "pass");
+  const deterministicIssues = scoredIssues.filter((issue) => issue.source === "rule_based");
+  const issueCounts = countByStatus(deterministicIssues);
+  const aiFlaggedCount = scoredIssues.length - deterministicIssues.length;
   const overallScore = computeWeightedScore(issueCounts);
   const limitations = unique([
     ...ruleBasedReport.limitations,
@@ -213,15 +201,17 @@ export function buildFinalReport({
     summary: {
       overallStatus,
       overallScore,
-      headline: summarizeHybridHeadline(ruleBasedReport, llmReview, overallStatus),
+      headline: buildHeadline(ruleBasedReport, llmReview),
       ruleBasedStatus: ruleBasedReport.summary.overallStatus,
       llmStatus: llmSummaryStatus,
-      // "Checks passed" comes from the fixed per-section findings; the issue
-      // counts come from the deduplicated item inventory (rule + AI).
+      // "Checks passed" comes from the fixed per-section findings; the scored
+      // counts come from deterministic (rule/layout/CrossRef) inventory items.
+      // AI-only findings are tallied separately and never affect the score.
       passCount: ruleBasedReport.summary.passCount,
       warningCount: issueCounts.warning,
       failCount: issueCounts.fail,
       infoCount: issueCounts.info,
+      aiFlaggedCount,
       aiAssessment: llmReview.report
         ? {
             overallScore: llmReview.report.overallScore,

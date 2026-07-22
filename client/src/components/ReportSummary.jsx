@@ -178,6 +178,13 @@ export default memo(function ReportSummary({ report, runDiff = null, sourceFile 
           <span>References missing</span>
           <strong>{report.document.referencesMissing ? "Yes" : "No"}</strong>
         </div>
+        {Number.isFinite(report.summary.aiFlaggedCount) && report.summary.aiFlaggedCount > 0 ? (
+          <div className="summary-card">
+            <span>AI-flagged</span>
+            <strong>{report.summary.aiFlaggedCount}</strong>
+            <span className="summary-card-note">advisory — not scored</span>
+          </div>
+        ) : null}
         {report.summary.aiAssessment ? (
           <div className="summary-card">
             <span>AI assessment</span>

@@ -45,7 +45,8 @@ npm run dev
 
 - `PORT`: Express port. Default `3001`
 - `OPENAI_API_KEY`: Required for the LLM review stage
-- `OPENAI_MODEL`: Structured output capable model. Default `gpt-5-mini`
+- `OPENAI_MODEL`: Structured output capable model. Default `gpt-5.6-luna`
+- `OPENAI_TEMPERATURE`: Sampling temperature, applied only when the model accepts it (reasoning models like the gpt-5 family reject sampling controls). Default `0`
 - `OPENAI_TIMEOUT_MS`: Per-request OpenAI timeout. Default `240000`
 - `OPENAI_MAX_RETRIES`: OpenAI SDK retry count. Default `1`
 - `LLM_DELTA_FLUSH_MS`: Coalescing window for `llm_delta` stream events. Default `120`
@@ -82,7 +83,7 @@ Emits:
 - `status` — `{ stage, message, progress, level, timestamp }`
 - `section` — one APA section result as soon as it is computed
 - `llm_delta` — coalesced OpenAI output chunks: `{ delta, previewLength, timestamp }` (the accumulated text is intentionally **not** resent per event)
-- `complete` — `{ report }` with the final compliance JSON (version `3.2.0`, including the top-level `referenceVerification` result)
+- `complete` — `{ report }` with the final compliance JSON (version `3.3.0`, including the top-level `referenceVerification` result)
 - `review_error`
 
 ### `POST /api/review/annotate`
@@ -109,7 +110,7 @@ Caveat: the counters live in the same JSON store as the daily request metrics. O
 3. Run local APA heuristics section by section — document structure, layout, title page, body/headings, citations, references — yielding to the event loop between sections so each `section` event streams as soon as it is computed
 4. Verify DOI-bearing reference entries against the public CrossRef API (`verifying_references` stage): unresolvable DOIs are flagged as likely fabricated or mistyped references, and year/title mismatches surface as warnings quoting what CrossRef reports. Entries without a DOI are not queried, and offline/timeout runs degrade to an informational note — the stage never fails the job
 5. Run one OpenAI structured-output review over labeled line/reference excerpts, the rule-based findings, and the measured layout facts
-6. Merge rule + model findings into a final report: duplicate AI findings fold into the matching rule item (`alsoFlaggedByLlm`), headline counts and the severity-weighted score derive from the deduplicated issue inventory, and the model's own score is reported separately as `summary.aiAssessment`
+6. Merge rule + model findings into a final report: duplicate AI findings fold into the matching rule item (`alsoFlaggedByLlm`), the headline status, counts, and severity-weighted score derive from the deterministic checks only (rule, layout, and CrossRef items), so the same manuscript always grades identically; AI-only findings appear in the inventory as labeled advisory items with a separate `summary.aiFlaggedCount`, and the model's own score is reported as `summary.aiAssessment`
 
 ## Re-run Ergonomics
 

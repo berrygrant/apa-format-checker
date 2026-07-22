@@ -106,7 +106,7 @@ test("distinct LLM issues survive dedup with their own source", () => {
   assert.equal(ampersandIssue.alsoFlaggedByLlm, false);
 });
 
-test("headline counts and score derive from the deduplicated inventory, not an averaged LLM score", () => {
+test("headline counts and score derive from deterministic issues; AI-only findings are advisory", () => {
   const parsedDocument = parseRawText(ORPHAN_DOCUMENT);
   const ruleBasedReport = runRuleBasedReview(parsedDocument);
   const llmReview = llmReviewWithIssues([
@@ -121,14 +121,46 @@ test("headline counts and score derive from the deduplicated inventory, not an a
   ]);
 
   const report = buildFinalReport({ job: JOB, parsedDocument, ruleBasedReport, llmReview });
-  const inventoryCounts = countByStatus(report.issueInventory.filter((issue) => issue.status !== "pass"));
+  const deterministicCounts = countByStatus(
+    report.issueInventory.filter((issue) => issue.status !== "pass" && issue.source === "rule_based"),
+  );
 
-  assert.equal(report.summary.failCount, inventoryCounts.fail);
-  assert.equal(report.summary.warningCount, inventoryCounts.warning);
-  assert.equal(report.summary.infoCount, inventoryCounts.info);
-  assert.equal(report.summary.overallScore, computeWeightedScore(inventoryCounts));
-  assert.notEqual(report.summary.overallScore, Math.round((ruleBasedReport.summary.score + 95) / 2));
+  assert.equal(report.summary.failCount, deterministicCounts.fail);
+  assert.equal(report.summary.warningCount, deterministicCounts.warning);
+  assert.equal(report.summary.infoCount, deterministicCounts.info);
+  assert.equal(report.summary.overallScore, computeWeightedScore(deterministicCounts));
+  assert.equal(report.summary.aiFlaggedCount, 1);
+  assert.ok(report.issueInventory.some((issue) => issue.source === "llm"), "AI issues stay visible in the inventory");
   assert.deepEqual(report.summary.aiAssessment, { overallScore: 95, overallStatus: "warning", confidence: "medium" });
+});
+
+test("the same manuscript grades identically regardless of what the AI pass returns", () => {
+  const parsedDocument = parseRawText(ORPHAN_DOCUMENT);
+  const ruleBasedReport = runRuleBasedReview(parsedDocument);
+  const quietRun = buildFinalReport({ job: JOB, parsedDocument, ruleBasedReport, llmReview: llmReviewWithIssues([]) });
+  const noisyRun = buildFinalReport({
+    job: JOB,
+    parsedDocument,
+    ruleBasedReport,
+    llmReview: llmReviewWithIssues(
+      Array.from({ length: 6 }, (_, index) => ({
+        severity: index % 2 === 0 ? "fail" : "warning",
+        title: `Run-specific AI finding ${index}`,
+        detail: "A finding the model may or may not produce on another run.",
+        recommendation: "Varies.",
+        locationLabel: `L${20 + index}`,
+        sourceExcerpt: "",
+      })),
+      { overallStatus: "fail", overallScore: 12 },
+    ),
+  });
+
+  assert.equal(noisyRun.summary.overallScore, quietRun.summary.overallScore);
+  assert.equal(noisyRun.summary.overallStatus, quietRun.summary.overallStatus);
+  assert.equal(noisyRun.summary.failCount, quietRun.summary.failCount);
+  assert.equal(noisyRun.summary.warningCount, quietRun.summary.warningCount);
+  assert.equal(noisyRun.summary.aiFlaggedCount, 6);
+  assert.equal(quietRun.summary.aiFlaggedCount, 0);
 });
 
 test("the skipped-LLM path keeps rule-only counts and no AI assessment", () => {
@@ -137,7 +169,7 @@ test("the skipped-LLM path keeps rule-only counts and no AI assessment", () => {
   const report = buildFinalReport({ job: JOB, parsedDocument, ruleBasedReport, llmReview: SKIPPED_LLM });
   const ruleCounts = countByStatus(ruleBasedReport.itemIssues);
 
-  assert.equal(report.version, "3.2.0");
+  assert.equal(report.version, "3.3.0");
   assert.equal(report.referenceVerification.status, "skipped");
   assert.equal(report.summary.failCount, ruleCounts.fail);
   assert.equal(report.summary.warningCount, ruleCounts.warning);

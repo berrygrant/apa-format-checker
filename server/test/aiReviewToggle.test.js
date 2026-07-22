@@ -80,3 +80,14 @@ test("jobs default to AI review on and serialize the flag", () => {
   assert.equal(serializeJob(defaultJob).aiReviewEnabled, true);
   assert.equal(serializeJob(optOutJob).aiReviewEnabled, false);
 });
+
+test("temperature is applied only to models that accept sampling controls", async () => {
+  const { modelSupportsTemperature } = await import("../src/lib/openaiReview.js");
+
+  assert.equal(modelSupportsTemperature("gpt-5.6-luna"), false);
+  assert.equal(modelSupportsTemperature("gpt-5-mini"), false);
+  assert.equal(modelSupportsTemperature("o3-mini"), false);
+  assert.equal(modelSupportsTemperature("gpt-5-chat-latest"), true);
+  assert.equal(modelSupportsTemperature("gpt-4.1-mini"), true);
+  assert.equal(modelSupportsTemperature("gpt-4o-mini"), true);
+});

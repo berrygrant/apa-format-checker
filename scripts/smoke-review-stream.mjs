@@ -239,12 +239,13 @@ async function readReviewStream(body) {
     throw new Error("The smoke DOCX declares 1-inch margins, but the layout margin check did not pass.");
   }
 
-  const inventoryFailCount = finalReport.issueInventory.filter((issue) => issue.status === "fail").length;
-  const inventoryWarningCount = finalReport.issueInventory.filter((issue) => issue.status === "warning").length;
+  const deterministicIssues = finalReport.issueInventory.filter((issue) => issue.source === "rule_based");
+  const inventoryFailCount = deterministicIssues.filter((issue) => issue.status === "fail").length;
+  const inventoryWarningCount = deterministicIssues.filter((issue) => issue.status === "warning").length;
 
   if (finalReport.summary.failCount !== inventoryFailCount || finalReport.summary.warningCount !== inventoryWarningCount) {
     throw new Error(
-      `Headline counts must match the issue inventory (fail ${finalReport.summary.failCount}/${inventoryFailCount}, warning ${finalReport.summary.warningCount}/${inventoryWarningCount}).`,
+      `Headline counts must match the deterministic issue inventory (fail ${finalReport.summary.failCount}/${inventoryFailCount}, warning ${finalReport.summary.warningCount}/${inventoryWarningCount}).`,
     );
   }
 

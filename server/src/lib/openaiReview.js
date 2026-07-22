@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import { APA_REVIEW_SCHEMA } from "./apaReportSchema.js";
-import { OPENAI_MAX_RETRIES, OPENAI_MODEL, OPENAI_TIMEOUT_MS } from "./config.js";
+import { OPENAI_MAX_RETRIES, OPENAI_MODEL, OPENAI_TEMPERATURE, OPENAI_TIMEOUT_MS } from "./config.js";
 import { buildApaReviewSystemPrompt, buildApaReviewUserInput } from "../prompts/apaReviewPrompt.js";
+
+// Reasoning-family models (gpt-5*, o-series) reject sampling controls; their
+// chat-tuned variants accept them. When the configured model supports it, a
+// pinned temperature keeps the advisory AI findings as repeatable as the API
+// allows — the headline score is deterministic either way.
+export function modelSupportsTemperature(model) {
+  return !/^(?:gpt-5|o\d)/i.test(model) || /chat/i.test(model);
+}
 
 let clientInstance = null;
 
@@ -128,6 +136,10 @@ export async function runOpenAiReview({
       },
       safety_identifier: createHash("sha256").update(jobId).digest("hex"),
     };
+
+    if (modelSupportsTemperature(OPENAI_MODEL)) {
+      requestPayload.temperature = OPENAI_TEMPERATURE;
+    }
 
     let rawText = "";
     let parsed;
