@@ -146,6 +146,9 @@ function createReviewJobFromRequest(req) {
       mimeType: req.file.mimetype,
     },
     reviewMode,
+    // Per-run student choice: "off" runs the rule/layout/CrossRef review only
+    // and sends nothing to OpenAI. Anything else keeps the AI stage on.
+    aiReviewEnabled: String(req.body?.aiReview ?? "on").trim().toLowerCase() !== "off",
   });
   const requestMetrics = recordReviewRequest();
 

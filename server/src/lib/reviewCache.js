@@ -9,9 +9,16 @@ import { REPORT_VERSION } from "./reportBuilder.js";
 // serves a stale report shape.
 const MAX_REVIEW_CACHE_ENTRIES = 50;
 
-export function buildReviewCacheKey(buffer, reviewMode, { model = OPENAI_MODEL, reportVersion = REPORT_VERSION } = {}) {
+export function buildReviewCacheKey(
+  buffer,
+  reviewMode,
+  { model = OPENAI_MODEL, reportVersion = REPORT_VERSION, aiReview = true } = {},
+) {
   const contentDigest = crypto.createHash("sha256").update(buffer).digest("hex");
-  return `${contentDigest}:${reviewMode}:${model}:${reportVersion}`;
+  const baseKey = `${contentDigest}:${reviewMode}:${model}:${reportVersion}`;
+
+  // An AI-off run must never replay a cached AI-on report (or vice versa).
+  return aiReview ? baseKey : `${baseKey}:noai`;
 }
 
 export function createReviewCache({

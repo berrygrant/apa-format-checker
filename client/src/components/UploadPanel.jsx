@@ -3,10 +3,12 @@ import { SUPPORTED_FILE_LABEL } from "../lib/constants.js";
 import { formatBytes } from "../lib/formatters.js";
 
 export default memo(function UploadPanel({
+  aiReviewEnabled = true,
   file,
   error,
   isBusy,
   jobId,
+  onAiReviewChange,
   onFilePicked,
   onReviewModeChange,
   onRun,
@@ -71,6 +73,25 @@ export default memo(function UploadPanel({
         <p className="review-mode-hint">{selectedReviewMode.description}</p>
       </div>
 
+      <div className="ai-review-field">
+        <label className="ai-review-toggle">
+          <input
+            checked={aiReviewEnabled}
+            disabled={isBusy}
+            onChange={(event) => onAiReviewChange?.(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <strong>Include AI review</strong>
+            <span className="ai-review-hint">
+              {aiReviewEnabled
+                ? "Sends text excerpts to OpenAI for the structured review pass."
+                : "Off — rule-based, layout, and reference checks only. Nothing is sent to OpenAI."}
+            </span>
+          </span>
+        </label>
+      </div>
+
       <label
         className={`dropzone ${isDragging ? "is-dragging" : ""}`}
         htmlFor={inputId}
@@ -106,8 +127,19 @@ export default memo(function UploadPanel({
       </div>
 
       <p className="disclaimer-note">
-        Submitted content may be shared with OpenAI during the review process. Do not upload sensitive or confidential data
-        unless that is acceptable for your use case.
+        {aiReviewEnabled ? (
+          <>
+            With AI review on, text excerpts from your document are analyzed via OpenAI's API. Per OpenAI's API policy,
+            this data is not used to train OpenAI's models and may be retained up to 30 days for abuse monitoring only.
+            Reference DOIs are checked against the public CrossRef database. Do not upload sensitive or confidential
+            data unless that is acceptable for your use case.
+          </>
+        ) : (
+          <>
+            AI review is off for this run — no document text is sent to OpenAI. Reference DOIs are still checked
+            against the public CrossRef database.
+          </>
+        )}
       </p>
 
       <p className="limitations-note">

@@ -56,6 +56,27 @@ function createParserSection(summary) {
 }
 
 function createLlmSection(llmReview) {
+  if (llmReview.skipped && llmReview.skipReason === "disabled_by_user") {
+    return {
+      id: "llm",
+      label: "OpenAI Review",
+      status: "info",
+      score: 100,
+      summary: "AI review was turned off for this run.",
+      findings: [
+        {
+          id: "llm-disabled",
+          status: "info",
+          title: "AI review turned off",
+          detail: llmReview.message,
+          recommendation: "Re-run with AI review enabled if you also want the structured OpenAI pass.",
+          evidence: null,
+        },
+      ],
+      metrics: {},
+    };
+  }
+
   if (llmReview.skipped) {
     return {
       id: "llm",
@@ -147,7 +168,7 @@ function replayCachedReview(job, cachedReview) {
 
 export async function processReviewJob(job, buffer, overrides = {}) {
   try {
-    const cacheKey = buildReviewCacheKey(buffer, job.reviewMode);
+    const cacheKey = buildReviewCacheKey(buffer, job.reviewMode, { aiReview: job.aiReviewEnabled !== false });
     const cachedReview = reviewCache.get(cacheKey);
 
     if (cachedReview) {
@@ -252,14 +273,17 @@ export async function processReviewJob(job, buffer, overrides = {}) {
     parts.push(referencesPart);
     const ruleBasedReport = assembleRuleBasedReport({ parsedDocument, citationData, referenceData, parts });
 
+    const aiReviewEnabled = job.aiReviewEnabled !== false;
     setJobStage(
       job,
       "llm_review",
-      process.env.OPENAI_API_KEY
-        ? job.reviewMode === "comprehensive"
-          ? "Streaming comprehensive OpenAI APA review..."
-          : "Streaming OpenAI APA review..."
-        : "Skipping OpenAI review and finalizing...",
+      !aiReviewEnabled
+        ? "AI review is off for this run - finalizing without OpenAI..."
+        : process.env.OPENAI_API_KEY
+          ? job.reviewMode === "comprehensive"
+            ? "Streaming comprehensive OpenAI APA review..."
+            : "Streaming OpenAI APA review..."
+          : "Skipping OpenAI review and finalizing...",
       72,
     );
 
@@ -270,6 +294,7 @@ export async function processReviewJob(job, buffer, overrides = {}) {
       ruleBasedReport,
       layoutFacts: layoutPart.promptFacts,
       reviewMode: job.reviewMode,
+      enabled: aiReviewEnabled,
       onTextDelta: (delta) => appendLlmPreview(job, delta),
     });
 

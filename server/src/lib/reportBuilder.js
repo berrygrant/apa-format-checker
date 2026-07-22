@@ -232,7 +232,7 @@ export function buildFinalReport({
     },
     ruleBased: ruleBasedReport,
     llm: {
-      enabled: Boolean(process.env.OPENAI_API_KEY),
+      enabled: Boolean(process.env.OPENAI_API_KEY) && job.aiReviewEnabled !== false,
       skipped: llmReview.skipped,
       failed: llmReview.failed,
       model: llmReview.model,

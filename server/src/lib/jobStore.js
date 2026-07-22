@@ -40,13 +40,14 @@ function publish(job, type, payload, { persist = true } = {}) {
   return event;
 }
 
-export function createJob({ id, fileMeta, reviewMode }) {
+export function createJob({ id, fileMeta, reviewMode, aiReviewEnabled = true }) {
   const job = {
     id,
     status: "queued",
     currentStage: "queued",
     fileMeta,
     reviewMode,
+    aiReviewEnabled,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     history: [],
@@ -76,6 +77,7 @@ export function serializeJob(job) {
     updatedAt: job.updatedAt,
     fileMeta: job.fileMeta,
     reviewMode: job.reviewMode,
+    aiReviewEnabled: job.aiReviewEnabled,
     history: job.history,
     sections: Object.values(job.sections),
     llmPreview: job.llmPreview,

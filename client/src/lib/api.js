@@ -105,6 +105,7 @@ export async function runReviewStream(file, reviewMode = "standard", handlers = 
   const formData = new FormData();
   formData.append("file", file);
   formData.append("reviewMode", reviewMode);
+  formData.append("aiReview", options.aiReview === false ? "off" : "on");
 
   const response = await fetch("/api/review/stream", {
     method: "POST",

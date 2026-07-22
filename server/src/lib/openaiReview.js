@@ -64,10 +64,32 @@ function normalizeReport(report) {
   };
 }
 
-export async function runOpenAiReview({ jobId, fileMeta, parsedDocument, ruleBasedReport, layoutFacts, reviewMode, onTextDelta }) {
+export async function runOpenAiReview({
+  jobId,
+  fileMeta,
+  parsedDocument,
+  ruleBasedReport,
+  layoutFacts,
+  reviewMode,
+  enabled = true,
+  onTextDelta,
+}) {
+  if (!enabled) {
+    return {
+      skipped: true,
+      skipReason: "disabled_by_user",
+      failed: false,
+      model: null,
+      rawText: "",
+      message: "AI review was turned off for this run, so no document text was sent to OpenAI.",
+      report: null,
+    };
+  }
+
   if (!process.env.OPENAI_API_KEY) {
     return {
       skipped: true,
+      skipReason: "missing_api_key",
       failed: false,
       model: null,
       rawText: "",

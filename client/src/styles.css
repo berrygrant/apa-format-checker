@@ -1600,3 +1600,45 @@ select {
     text-decoration: underline;
   }
 }
+
+.ai-review-field {
+  margin-top: 16px;
+}
+
+.ai-review-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.ai-review-toggle input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.ai-review-toggle input:disabled {
+  cursor: not-allowed;
+}
+
+.ai-review-toggle strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.ai-review-hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}

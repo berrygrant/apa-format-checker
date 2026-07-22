@@ -78,6 +78,7 @@ export default function App() {
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [reviewMode, setReviewMode] = useState(REVIEW_MODES[0].id);
+  const [aiReviewEnabled, setAiReviewEnabled] = useState(true);
   const [fileError, setFileError] = useState("");
   const [appError, setAppError] = useState("");
   const [jobId, setJobId] = useState("");
@@ -275,13 +276,16 @@ export default function App() {
     abortControllerRef.current = controller;
 
     try {
-      await runReviewStream(fileToReview, reviewMode, buildStreamHandlers(), { signal: controller.signal });
+      await runReviewStream(fileToReview, reviewMode, buildStreamHandlers(), {
+        signal: controller.signal,
+        aiReview: aiReviewEnabled,
+      });
     } finally {
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
     }
-  }, [closeStream, reviewMode]);
+  }, [closeStream, reviewMode, aiReviewEnabled]);
 
   // The POST stream ended without a terminal event (dropped connection, LB
   // timeout, container recycle). Try one GET rejoin by job id: with the
@@ -558,6 +562,8 @@ export default function App() {
             isBusy={isSubmitting || jobStatus === "processing"}
             jobId={jobId}
             onFilePicked={handleFilePicked}
+            aiReviewEnabled={aiReviewEnabled}
+            onAiReviewChange={setAiReviewEnabled}
             onReviewModeChange={setReviewMode}
             onRun={handleRun}
             reviewMode={reviewMode}
